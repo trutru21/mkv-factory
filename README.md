@@ -2,7 +2,7 @@
 
 #### Version 8.2
 
-A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10 metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
+A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10/HDR10+ metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
 
 Want to process entire folders? This tool got you covered. Specify the processing policies (e.g., encoding quality, audio/subtitle languages, etc.) in a profile, and the script will take care of the rest.
 
@@ -98,8 +98,10 @@ distrobox enter mkv-factory
 
 ### Step 3: Install Tools Inside the Container
 ```bash
-sudo apt update
-sudo apt install -y ffmpeg mkvtoolnix wget
+sudo apt install -y \
+  ffmpeg=6.1.1-3ubuntu5 \
+  mkvtoolnix=82.0-1build2 \
+  wget
 
 wget https://github.com/quietvoid/dovi_tool/releases/download/2.1.0/dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
 tar -xvf dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
