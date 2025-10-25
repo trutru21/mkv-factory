@@ -1,0 +1,26 @@
+{
+  "video_policy": "passthrough",
+  "passthrough_convert_dv_to_p8": false,
+  "audio_selection": {
+    "policy": "best_per_language",
+    "languages": ["eng", "pol"],
+    "preferred_codecs": ["truehd", "dts-hd ma"],
+    "exclude_titles_containing": ["commentary", "director", "description"],
+    "default_track_language": "eng"
+  },
+  "subtitle_selection": {
+    "policy": "best_per_language",
+    "languages": ["pol"],
+    "preferred_codecs": ["subrip", "hdmv_pgs_subtitle"],
+    "exclude_titles_containing": ["forced", "sdh", "deaf"],
+    "default_track_language": "pol",
+    "default_mode": "first"
+  },
+  "cleanup_policy": {
+    "final_cleanup": "on_success"
+  },
+  "logging": {
+    "log_to_file": true,
+    "log_filename": "mkv_factory.log"
+  }
+}

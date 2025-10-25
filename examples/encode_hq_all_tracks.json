@@ -1,0 +1,32 @@
+{
+  "video_policy": "encode",
+  "nvenc": {
+    "encoder_params": {
+      "cq": "16",
+      "preset": "p7"
+    }
+  },
+  "amf": {
+    "encoder_params": {
+      "qp": "16",
+      "quality": "quality"
+    }
+  },
+  "audio_selection": {
+    "policy": "all",
+    "default_track_language": "eng"
+  },
+  "subtitle_selection": {
+    "policy": "all",
+    "default_track_language": "eng",
+    "default_mode": "none"
+  },
+  "cleanup_policy": {
+    "auto_cleanup_temp_video": true,
+    "final_cleanup": "on_success"
+  },
+  "logging": {
+    "log_to_file": true,
+    "log_filename": "mkv_factory.log"
+  }
+}

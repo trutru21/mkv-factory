@@ -108,6 +108,7 @@ tar -xvf dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
 sudo mv dovi_tool /usr/local/bin/
 rm dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
 ```
+The specific package versions are pinned to ensure script compatibility. These versions were tested with the mkv_factory logic.
 
 ### Step 4: Install Unidecode (optional)
 
@@ -414,7 +415,7 @@ This profile will:
   },
   "amf": {
     "encoder_params": {
-      "qp": "22",
+      "qp": "16",
       "quality": "quality"
     }
   },
@@ -471,7 +472,7 @@ This profile will:
   },
   "amf": {
     "encoder_params": {
-      "qp": "22",
+      "qp": "16",
       "quality": "quality"
     }
   },
