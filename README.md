@@ -1,6 +1,6 @@
 # MKV Factory
 
-#### Version 8.2
+#### Version 8.3
 
 A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10/HDR10+ metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
 
@@ -17,7 +17,7 @@ Need to fine-tune your MKVs? You can easily extract the best parts from differen
     - **Batch Mode:** Point the script at a source folder, provide a profile, and let it process all video files automatically according to your rules.
 - **Efficient HEVC Encoding:** Transcode large Blu-ray rips (H.264 or HEVC) to space-saving H.265/HEVC using hardware acceleration.
 - **Full Video Passthrough (Remux):** Don't need to re-encode? Use the `passthrough` mode to copy the video stream untouched while still allowing you to select and remux audio/subtitle tracks.
-- **Dolby Vision Profile Conversion:** Automatically converts incompatible Blu-ray Dolby Vision profiles (like Profile 7 FEL/MEL and Profile 5) to the widely compatible **Profile 8**, ensuring playback on media servers like Plex and modern devices.
+- **Dolby Vision Profile Conversion:** Automatically converts incompatible Blu-ray Dolby Vision 7 profile to the widely compatible **Profile 8**, ensuring playback on media servers like Plex and modern devices.
 - **Hardware Acceleration:** Automatically detects Nvidia (NVENC) or AMD (AMF) hardware encoders for fast conversions.
 - **Smart Track Selection:** Define preferred languages, codec priorities (e.g., TrueHD > DTS > AC3), and exclusion keywords (e.g., "commentary") in your profile for automated, intelligent audio and subtitle track selection.
 - **Flexible Stream Injection:** Ever wished you could merge the best parts of two rips? Now you can! Easily combine video, audio, and subtitles from any source into your perfect MKV.
@@ -25,17 +25,19 @@ Need to fine-tune your MKVs? You can easily extract the best parts from differen
 - **Plex-Friendly Naming:** Generates clean, organized filenames compliant with media server standards (e.g., `Movie Title (Year) [2160p HEVC CQ16 DV].mkv` or `Movie Title (Year) [1080p HEVC REMUX HDR].mkv`).
 - **Detailed Logging:** Creates a timestamped log file for each run, making it easy to track progress, verify settings, and troubleshoot issues.
 
-### HDR10+ Limitation Notice
+### HDR10+ and Dolby Vision Profile 5 Limitation Notice
 
 Currently, this tool can only preserve (transfer) HDR10+ metadata when using the **Passthrough Mode**.
 
 The **Encode Mode** uses hardware encoders (NVENC/AMF) which **will discard** all HDR10+ metadata, at this time.
 
 **Recommendation:**
-* **To preserve HDR10+:** You MUST select **Passthrough Mode** (in interactive mode) or set `"video_policy": "passthrough"` (in your profile.json).
-* **To also ensure Dolby Vision compatibility:** Select **Passthrough Mode** and answer **"Yes"** to the DV conversion question (or set `"passthrough_convert_dv_to_p8": true`). This is the *only* way to preserve HDR10+ **and** convert DV P5/P7 at the same time.
+- **To preserve HDR10+:** You MUST select **Passthrough Mode** (in interactive mode) or set `"video_policy": "passthrough"` (in your profile.json).
+- **To also ensure Dolby Vision compatibility:** Select **Passthrough Mode** and answer **"Yes"** to the DV conversion question (or set `"passthrough_convert_dv_to_p8": true`). This is the *only* way to preserve HDR10+ **and** convert DV P7 to P8 at the same time.
 
-If your hardware supports Dolby Vision - you're safe to use whichever mode you prefer.
+- **Dolby Vision Profile 5 :** Processing is INCOMPATIBLE & BLOCKED. This profile's IPT-PQ-C2 color matrix cannot be correctly processed by the encoding (NVENC/AMF) or conversion (`dovi_tool`) tools used in this script. Attempting either would result in corrupted (purple/green) video.
+    - The script detects Profile 5 and **automatically forces Pure Passthrough mode** (1:1 copy) if you select Encode or Hybrid Passthrough, preventing video corruption during processing.
+    - **IMPORTANT:** The resulting output file will retain the original Profile 5 stream and **will likely appear purple/green on most players** due to lack of IPT-PQ-C2 support. Correct playback requires specific compatible hardware (e.g., Nvidia Shield).
 
 ---
 ## Prerequisites
@@ -170,7 +172,7 @@ This mode will process the entire folder (**not** including the subfolders) and 
 ```
 Please refer to the "Configuration File Description" chapter for info on how to properly configure the batch run.
 
-> Please note that audio and subtitle tracks are never re-encoded; they are always copied (passthrough). Why? Because the sound is what matters :)
+> Please note that audio and subtitle tracks are never re-encoded; they are always copied (passthrough).
 
 ### Capturing Logs
 
@@ -247,7 +249,7 @@ This is the most important setting, defining the high-level behavior of the scri
 
 - **passthrough_convert_dv_to_p8** (Boolean): Optional. Only used when video_policy is "passthrough". Defaults to false.
   - **false** (Pure Passthrough): Copies the video stream 1:1. The original Dolby Vision profile (e.g., P5 or P7) is preserved. This is recommended only for advanced players that can handle all DV profiles (e.g., Nvidia Shield), or if your player does not support DV at all and you just want to keep the HDR10+.
-  - **true** (Hybrid Passthrough): Copies the video stream while using dovi_tool to convert incompatible Dolby Vision profiles (P5, P7) to a compatible Profile 8 (e.g., P8.1, P8.2). This is the recommended passthrough mode as it preserves HDR10+ and creates a widely compatible DV file.
+  - **true** (Hybrid Passthrough): Copies the video stream while using dovi_tool to convert Dolby Vision profile P7 to a compatible Profile 8 (e.g., P8.1, P8.2). This is the recommended passthrough mode as it preserves HDR10+ and creates a widely compatible DV file.
 
 ### Encoder Params (nvenc, amf)
 
@@ -264,7 +266,7 @@ Defines parameters for specific encoders. The script automatically uses the sect
   },
     "amf": {
     "encoder_params": {
-      "qp": "22",
+      "qp": "16",
       "quality": "quality"
     }
   }
@@ -553,7 +555,7 @@ This profile will:
 
 This profile will:
 - copy (remux) the video stream, preserving original quality and HDR10+,
-- convert incompatible DV Profiles (P5/P7) to a compatible Profile 8,
+- convert incompatible DV Profile P7 to a compatible Profile 8,
 - select the best audio track for English and Polish (excluding commentaries),
 - select the best subtitle track for Polish (excluding forced/sdh),
 - set English as the default audio language, and Polish as the default subs.
@@ -685,6 +687,12 @@ If all commands succeed, your environment is ready.
 ## Acknowledgements
 
 This project relies on the outstanding open-source work behind FFmpeg, MKVToolNix, and dovi_tool. All credit goes to their respective developers.
+
+## Future Plans
+
+This may, or may not happen :)
+- `hevc_qsv` support for integrated GPU's
+- Batch processing results file (detailed summary of processed files)
 
 ## Support / Buy Me a Coffee ☕️
 

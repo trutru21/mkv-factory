@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 """
-MKV Conversion & Remuxing Factory (Version 8.2)
+MKV Conversion & Remuxing Factory (Version 8.3)
 Copyright (c) 2025 Tomasz Rurarz
 
 Changes:
-- Code cleanup
+- Add Move DV5 sanity check and moge conversions to pure passthrough path.
 
 Features:
 - Full batch processing support (-s, -o, -p) with configurable policies.
@@ -1298,24 +1298,56 @@ def configure_full_run(
             dv_profile = config.get('dv_profile')
             dv_profile_str = str(dv_profile) if dv_profile is not None else "None"
 
-            if dv_profile_str == '5' or dv_profile_str == '7':
-                print_warn(f"Detected Dolby Vision Profile {dv_profile_str}, which may not be compatible with all players.")
-                print_warn("Selecting 'No' is only recommended for advanced players (e.g., Nvidia Shield).")
-                print_info("If your player *only* supports HDR10+ (and not DV), both options will work, but selecting 'No' will be faster.")
-                choice = input_k("Do you want to convert this profile to Profile 8? (also preserves HDR10+, if present) [Y/n]:")
+            # --- Case 1: Profile 7 ---
+            # Conversion (P7 -> P8.1) is possible and recommended for compatibility.
+            if dv_profile_str == '7':
+                print_warn(f"Detected Dolby Vision Profile 7, which may not be compatible with all players.")
+                print_warn("Selecting 'No' (keeping P7) is only recommended for advanced players (e.g., Nvidia Shield).")
+                print_info("If your player *only* supports HDR10+ (and not DV P7), both options should work, but selecting 'No' will be faster.")
+                choice = input_k("Do you want to convert this profile to compatible Profile 8? (preserves HDR10+, recommended) [Y/n]: ")
 
                 if choice.lower() != 'n':
                     config['passthrough_convert_dv_to_p8'] = True
-                    print_info("OK: DV Profile will be converted to 8 during passthrough.")
+                    print_info("OK: DV Profile 7 will be converted to 8 during passthrough.")
                 else:
                     config['passthrough_convert_dv_to_p8'] = False
-                    print_info(f"OK: DV Profile {dv_profile_str} will be passed through without conversion.")
+                    print_info(f"OK: DV Profile 7 will be passed through without conversion.")
+
+            # --- Case 2: Profile 5 ---
+            # Conversion (P5 -> P8.2) is technically possible but known to CORRUPT video with current tools.
+            elif dv_profile_str == '5':
+                print_warn(f"Detected Dolby Vision Profile 5!")
+                print_warn(f"This profile uses an incompatible color matrix (IPT-PQ-C2).")
+                print_warn(f"Current tools **FAIL** to convert this profile's colors correctly.")
+                print_warn(f"Attempting conversion ('Yes') WILL LIKELY CORRUPT the video output (purple/green artifacts).")
+                print_info(f"Selecting 'No' (Pure Passthrough) is the ONLY SAFE option to avoid corrupting the video during processing.")
+                choice = input_k("Do you still want to attempt conversion to Profile 8 (NOT RECOMMENDED, likely corrupts video)? [y/N]: ")
+
+                if choice.lower() == 'y':
+                    # User explicitly chose the dangerous option
+                    config['passthrough_convert_dv_to_p8'] = True
+                    print_warn("WARNING: Proceeding with Profile 5 conversion despite incompatibility. Output may be corrupted.")
+                else:
+                    # Default and safe option
+                    config['passthrough_convert_dv_to_p8'] = False
+                    print_info(f"OK: DV Profile 5 will be passed through without conversion (Pure Passthrough).")
+                    print_warn("Output file retains Profile 5 (IPT-PQ-C2) and requires compatible playback hardware (e.g., Shield).")
+
+            # --- Case 3: Profile 8 (Already compatible) ---
             elif dv_profile_str == '8':
-                print_info("Detected Dolby Vision Profile 8. No conversion needed.")
+                print_info("Detected compatible Dolby Vision Profile 8. No conversion needed.")
+                # Ensure flag is off, just in case
+                config['passthrough_convert_dv_to_p8'] = False
+
+            # --- Case 4: No DV or Unsupported ---
             else:
                 print_info("No DV profile (or unsupported P4) detected. No conversion needed.")
+                # Ensure flag is off
+                config['passthrough_convert_dv_to_p8'] = False
+            # --- END DV Profile Conversion Logic ---
 
-            break
+            # Passthrough mode selected, now break the main loop
+            break # Exit the 'while True:' loop for video policy selection
         else:
             print_warn("Invalid choice. Please enter 1 or 2.")
 
@@ -2010,13 +2042,64 @@ def run_full_conversion(
         else:
              print_info("Step 3: Skipping HDR10 Metadata Tag generation (Passthrough Mode).")
 
+        # --- Profile 5 Sanity Check ---
+        # We must check for P5 before the main logic paths, as our toolchain
+        # (ffmpeg/nvenc/amf and dovi_tool 2.x) cannot correctly process
+        # the IPT-PQ-C2 color matrix used by Profile 5.
+
+        original_video_policy = config.get('video_policy')
+        original_convert_flag = config.get('passthrough_convert_dv_to_p8') # Store original intent
+        dv_profile_str = str(config.get('dv_profile'))
+
+        override_needed = False # Flag to track if we forced a change
+
+        if dv_profile_str == '5':
+            # Initial detection message
+            print_warn(f"Dolby Vision Profile 5 detected.")
+            print_warn(f"This profile's video stream uses the IPT-PQ-C2 color matrix.")
+
+            if original_video_policy == 'encode':
+                print_warn(f"Encode policy (NVENC/AMF) is INCOMPATIBLE with IPT-PQ-C2.")
+                print_warn(f"The encoder **misinterprets** these colors during processing.")
+                print_warn(f"This **permanently corrupts** the output video (bakes in purple/green artifacts).")
+                override_needed = True
+
+            elif original_convert_flag == True:
+                 print_warn(f"Hybrid Passthrough (convert) policy is INEFFECTIVE for IPT-PQ-C2.")
+                 print_warn(f"dovi_tool (v2.x) **fails to convert** the IPT-PQ-C2 colors correctly.")
+                 print_warn(f"This produces a misleading Profile 8 file containing the original (misinterpreted as purple/green) video data.")
+                 override_needed = True
+
+            if override_needed:
+                print_warn("OVERRIDE: Forcing 'Pure Passthrough' mode (1:1 copy) **to prevent video corruption during processing**.")
+                # Force the config to use the Pure Passthrough path
+                config['video_policy'] = 'passthrough'
+                config['passthrough_convert_dv_to_p8'] = False
+                use_hdr_tags_xml = False
+
+                print_warn("WARNING: The final filename may still contain Encode/Convert tags, but the video stream is an unmodified Pure Passthrough copy.")
+
+            # Covers the case where the user *already* chose Pure Passthrough for P5
+            elif original_video_policy == 'passthrough' and original_convert_flag == False:
+                 print_info("Profile 5 detected with 'Pure Passthrough' policy (1:1 copy) as requested.")
+                 # No override needed, just proceed to the final warning
+
+            # This warning appears for P5 regardless of override, explaining the playback issue.
+            print_warn("--------------------------------------------------------------------")
+            print_warn("IMPORTANT: The output file retains the **original, unmodified** Profile 5 video stream (IPT-PQ-C2).")
+            print_warn("This stream **WILL APPEAR PURPLE/GREEN on most PC players and TVs** due to lack of IPT-PQ-C2 support.")
+            print_warn("Correct playback requires specific compatible hardware (e.g., Nvidia Shield with appropriate player software).")
+            print_warn("--------------------------------------------------------------------")
+
+        # --- END SANITY CHECK ---
+
         # --- Determine Video Path (Passthrough or Encode) ---
         video_input_for_mux = ""
         map_str_for_mux = ""
         final_mux_step = ""
 
         if config.get('video_policy') == 'passthrough':
-            # --- NEW: Check if this is a hybrid conversion passthrough ---
+            # --- Check if this is a hybrid conversion passthrough ---
             dv_profile = config.get('dv_profile')
             dv_profile_str = str(dv_profile) if dv_profile is not None else "None"
             should_convert_dv = config.get('passthrough_convert_dv_to_p8', False)
