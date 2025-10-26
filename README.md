@@ -1,6 +1,6 @@
 # MKV Factory
 
-#### Version 8.3
+#### Version 8.4
 
 A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10/HDR10+ metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
 
