@@ -5,7 +5,7 @@ MKV Conversion & Remuxing Factory (Version 8.3)
 Copyright (c) 2025 Tomasz Rurarz
 
 Changes:
-- Add Move DV5 sanity check and moge conversions to pure passthrough path.
+- Add DV5 sanity check and move conversions to pure passthrough path.
 
 Features:
 - Full batch processing support (-s, -o, -p) with configurable policies.
@@ -15,7 +15,7 @@ Features:
 - Profile support via '-p' argument.
 - Smart encoder detection (Nvidia NVENC vs. AMD AMF).
 - Separate configuration for NVENC (CQ/Preset) and AMF (QP/Quality).
-- Dolby Vision (Profile 8) passthrough using dovi_tool, with auto-conversion for 5.x and 7.x profiles.
+- Dolby Vision (Profile 8) passthrough using dovi_tool, with auto-conversion for DV 7 profiles.
 - HDR10 tags reinjection.
 - Video passthrough mode with/without DV profile conversion, while keeping HDR10+ data intact.
 - Correct demuxing using 'mkvextract'.
