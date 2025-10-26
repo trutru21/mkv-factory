@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 """
-MKV Conversion & Remuxing Factory (Version 8.3)
+MKV Conversion & Remuxing Factory (Version 8.4)
 Copyright (c) 2025 Tomasz Rurarz
 
-Changes:
-- Add DV5 sanity check and move conversions to pure passthrough path.
+Fixes
+- Remove "Fast path" for DV8 as it produces corrupted video streams that will casue DV-enabled players to crash.
 
 Features:
 - Full batch processing support (-s, -o, -p) with configurable policies.
@@ -15,7 +15,7 @@ Features:
 - Profile support via '-p' argument.
 - Smart encoder detection (Nvidia NVENC vs. AMD AMF).
 - Separate configuration for NVENC (CQ/Preset) and AMF (QP/Quality).
-- Dolby Vision (Profile 8) passthrough using dovi_tool, with auto-conversion for DV 7 profiles.
+- Dolby Vision (Profile 8) passthrough using dovi_tool, with auto-conversion for 5.x and 7.x profiles.
 - HDR10 tags reinjection.
 - Video passthrough mode with/without DV profile conversion, while keeping HDR10+ data intact.
 - Correct demuxing using 'mkvextract'.
@@ -1314,7 +1314,7 @@ def configure_full_run(
                     print_info(f"OK: DV Profile 7 will be passed through without conversion.")
 
             # --- Case 2: Profile 5 ---
-            # Conversion (P5 -> P8.2) is technically possible but known to CORRUPT video with current tools.
+            # Conversion (P5 -> P8) is technically possible but known to CORRUPT video with current tools.
             elif dv_profile_str == '5':
                 print_warn(f"Detected Dolby Vision Profile 5!")
                 print_warn(f"This profile uses an incompatible color matrix (IPT-PQ-C2).")
@@ -2111,7 +2111,7 @@ def run_full_conversion(
                 conversion_mode = "3" # P5 -> P8
 
             if conversion_mode:
-                # --- HYBRID PASSTHROUGH PATH (P5/P7 -> P8 + HDR10+) ---
+                # --- HYBRID PASSTHROUGH PATH (P7 -> P8 + HDR10+) ---
                 path_name = f"Hybrid Passthrough (P{dv_profile_str} -> P8)"
                 print_header(f"Step 4: ({path_name}) Extracting raw HEVC")
 
@@ -2169,7 +2169,7 @@ def run_full_conversion(
             # --- END OF PASSTHROUGH LOGIC ---
 
         else:
-            # --- ENCODE (Paths A, B, C) ---
+            # --- ENCODE ---
             print_info("Encode mode selected. Determining DV profile path...")
 
             # Get video stream info needed for encode paths
@@ -2182,108 +2182,44 @@ def run_full_conversion(
             dv_profile_str = str(dv_profile) if dv_profile is not None else "None"
             print_info(f"Using profile string for logic: '{dv_profile_str}'")
 
-        # -----------------------------------------------------------------
-        #  PATH A: FAST TRACK (Profile 8 / No DV / HDR Only)
-        # -----------------------------------------------------------------
-            if dv_profile_str == '8' or not config['has_dv']:
-                path_name = "Fast Path (Profile 8 / HDR Only)"
-                use_hdr_tags_xml = True # Use XML for HDR/DV8
-                print_header(f"Step 4: {path_name} Converting video to temp MKV")
-
-                temp_video_converted_mkv = os.path.join(output_dir, f"{file_basename}_temp_video_converted.mkv")
-                files_to_cleanup.append(temp_video_converted_mkv)
-
-                cmd_convert = ['ffmpeg']
-                cmd_convert.extend(['-i', source_file])
-                cmd_convert.extend(['-map', f"0:{map_video}"])
-                cmd_convert.extend(['-an', '-sn'])
-
-                if config['encoder'] == 'nvenc':
-                    print_info("Nvidia encoder selected.")
-                    cmd_convert.extend(['-c:v', 'hevc_nvenc', '-preset', config['encoder_params']['preset'], '-cq', config['encoder_params']['cq'], '-pix_fmt', 'p010le'])
-                elif config['encoder'] == 'amf':
-                    print_info("AMD encoder selected.")
-                    cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', config['encoder_params']['qp'], '-qp_i', config['encoder_params']['qp'], '-qp_b', config['encoder_params']['qp'], '-quality', config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
-
-                if config.get('hdr10_master_display'):
-                    print_info("Attempting to pass HDR10 Mastering Display via -metadata flag.")
-                    cmd_convert.extend(['-metadata', f"mastering-display={config['hdr10_master_display']}"])
-                if config.get('hdr10_cll_fall'):
-                    print_info("Attempting to pass HDR10 Content Light Level via -metadata flag.")
-                    cmd_convert.extend(['-metadata', f"max-cll={config['hdr10_cll_fall']}"])
-
-                cmd_convert.append(temp_video_converted_mkv)
-                run_command(cmd_convert)
-
-                video_input_for_mux = temp_video_converted_mkv
-                map_str_for_mux = "0:0"
-
             # -----------------------------------------------------------------
-            #  PATH B: Profile 7 or 5 Conversion
+            #  PATH ENCODE: UNIFIED (Profile 7 / Profile 8)
+            #  (P5 is blocked by Sanity Check earlier)
             # -----------------------------------------------------------------
-            elif dv_profile_str == '7' or dv_profile_str == '5':
-                path_name = f"Profile {dv_profile_str} Conversion"
-                use_hdr_tags_xml = True
-
-                print_header(f"Step 4: ({path_name}): Extracting RPU")
+            if dv_profile_str == '7' or dv_profile_str == '8':
+                path_name = f"Profile {dv_profile_str} Encode"
+                use_hdr_tags_xml = True # We still need this for HDR10 fallback tags
 
                 video_codec_name = video_stream_config.get('codec_name', 'hevc')
                 if 'hevc' not in video_codec_name:
-                    raise ValueError("Dolby Vision Profile 7 detected, but the video codec is not HEVC. Cannot proceed.")
+                    raise ValueError(f"Dolby Vision Profile {dv_profile_str} detected, but the video codec is not HEVC. Cannot proceed.")
 
-                # --- Define files for the NEW P8 workflow (using editor) ---
+                # --- Define files ---
                 temp_video_raw = os.path.join(output_dir, f"{file_basename}_temp_video_raw.hevc")
-                temp_rpu_p7 = os.path.join(output_dir, f"{file_basename}_temp_RPU_P7.bin")
-                temp_editor_json = os.path.join(output_dir, f"{file_basename}_temp_editor.json")
-                temp_rpu_p8 = os.path.join(output_dir, f"{file_basename}_temp_RPU_P8.bin")
+                temp_rpu_original = os.path.join(output_dir, f"{file_basename}_temp_RPU_original.bin")
                 temp_video_converted_hevc = os.path.join(output_dir, f"{file_basename}_temp_video_converted.hevc")
                 temp_video_final_dv = os.path.join(output_dir, f"{file_basename}_temp_video_final_dv.hevc")
 
-                # Updated cleanup list
+                # Files for 7->8 conversion (optional)
+                temp_editor_json = os.path.join(output_dir, f"{file_basename}_temp_editor.json")
+                temp_rpu_converted_p8 = os.path.join(output_dir, f"{file_basename}_temp_RPU_P8_converted.bin")
+
                 files_to_cleanup.extend([
-                    temp_video_raw, temp_rpu_p7, temp_editor_json, temp_rpu_p8,
-                    temp_video_converted_hevc, temp_video_final_dv
+                    temp_video_raw, temp_rpu_original, temp_video_converted_hevc,
+                    temp_video_final_dv
                 ])
 
-                # 4a: Extract raw video stream
-                print_info("Extracting raw video stream for RPU tool...")
+                # --- Step 4a: Extract raw video stream ---
+                print_header(f"Step 4: ({path_name}): Extracting raw HEVC")
                 cmd_extract_raw = ['mkvextract', 'tracks', source_file, f'{map_video}:{temp_video_raw}']
                 run_command(cmd_extract_raw)
 
-                # 4b: Extract RPU (P7)
-                print_info("Extracting RPU (P7) using dovi_tool...")
-                cmd_rpu_extract = ['dovi_tool', 'extract-rpu', '-i', temp_video_raw, '-o', temp_rpu_p7]
+                # --- Step 4b: Extract ORIGINAL RPU (P7 or P8) ---
+                print_header(f"Step 4b: ({path_name}): Extracting original RPU")
+                cmd_rpu_extract = ['dovi_tool', 'extract-rpu', '-i', temp_video_raw, '-o', temp_rpu_original]
                 run_command(cmd_rpu_extract)
 
-                # --- STEP 4c: Create temp JSON for editor ---
-                print_info("Creating temporary P8 conversion config...")
-                try:
-                    # Select mode based on detected profile
-                    if dv_profile_str == '7':
-                        print_info("Detected Profile 7, setting editor mode to 2 (P7->P8)")
-                        editor_config = {"mode": 2}
-                    elif dv_profile_str == '5':
-                        print_info("Detected Profile 5, setting editor mode to 3 (P5->P8)")
-                        editor_config = {"mode": 3}
-
-                    with open(temp_editor_json, 'w', encoding='utf-8') as f:
-                        json.dump(editor_config, f)
-                    print_info(f"Config written: {temp_editor_json}")
-                except Exception as e:
-                    print_error(f"Failed to write temporary editor config: {e}")
-                    raise # Stop the process if we can't create the config
-
-                # --- STEP 4d: Convert RPU P7 -> P8 (bin-to-bin) ---
-                print_header(f"Step 4d: ({path_name}) Converting RPU to Profile 8")
-                cmd_rpu_convert = [
-                    'dovi_tool', 'editor',
-                    '-i', temp_rpu_p7,
-                    '-j', temp_editor_json,
-                    '-o', temp_rpu_p8
-                ]
-                run_command(cmd_rpu_convert)
-
-                # --- STEP 5: Convert HEVC -> HEVC ---
+                # --- Step 5: Convert HEVC -> HEVC (The Encode step) ---
                 print_header(f"Step 5: ({path_name}) Converting Base Layer to temp HEVC")
                 cmd_convert = ['ffmpeg']
                 cmd_convert.extend(['-i', temp_video_raw])
@@ -2295,64 +2231,127 @@ def run_full_conversion(
                     print_info("AMD encoder selected.")
                     cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', config['encoder_params']['qp'], '-qp_i', config['encoder_params']['qp'], '-qp_b', config['encoder_params']['qp'], '-quality', config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
 
+                # ffmpeg strips RPU.
+                # We are re-injecting it later, so this encode step is fine.
                 cmd_convert.append(temp_video_converted_hevc) # Save to .hevc
                 run_command(cmd_convert)
 
-                # Cleanup the raw video and P7 RPU
+                # --- Step 6: RPU Decision & Injection ---
+                # Default: Use the original RPU we extracted
+                rpu_to_inject = temp_rpu_original
+
+                # When in 'encode' mode, we MUST convert P7 to P8.1
+                # because ffmpeg discards the Enhancement Layer (EL),
+                # leaving only a single-layer Base Layer (BL).
+                # Injecting P7 RPU (which points to a non-existent EL)
+                # would corrupt the file.
+                if dv_profile_str == '7':
+                    print_header(f"Step 6a: ({path_name}) Forcing RPU P7 -> P8.1 conversion")
+                    print_info("Encode mode detected: P7 RPU must be converted to P8.1 to match the single-layer (BL-only) HEVC output.")
+
+                    files_to_cleanup.extend([temp_editor_json, temp_rpu_converted_p8])
+
+                    # Create editor config
+                    try:
+                        editor_config = {"mode": 2} # P7 -> P8 mode
+                        with open(temp_editor_json, 'w', encoding='utf-8') as f:
+                            json.dump(editor_config, f)
+                    except Exception as e:
+                        print_error(f"Failed to write temporary editor config: {e}")
+                        raise
+
+                    # Run editor
+                    cmd_rpu_convert = [
+                        'dovi_tool', 'editor',
+                        '-i', temp_rpu_original, # Input is original P7 RPU
+                        '-j', temp_editor_json,
+                        '-o', temp_rpu_converted_p8 # Output is new P8 RPU
+                    ]
+                    run_command(cmd_rpu_convert)
+
+                    # Update the variable to point to the NEW RPU file
+                    rpu_to_inject = temp_rpu_converted_p8
+                    print_info("RPU will be injected from new P8 file.")
+
+                else: # This covers dv_profile_str == '8'
+                    print_info("Proceeding with original Profile 8 RPU.")
+
+                # Cleanup the raw video
                 if config['auto_cleanup_temp_video']:
                     skasuj_plik(temp_video_raw, label="raw temp video (post-conversion)")
-                    skasuj_plik(temp_rpu_p7, label="P7 RPU (converted)")
-                    skasuj_plik(temp_editor_json, label="Temp JSON config")
+                    if rpu_to_inject != temp_rpu_original: # If we converted
+                        skasuj_plik(temp_rpu_original, label="Original P7 RPU (converted)")
+                        skasuj_plik(temp_editor_json, label="Temp JSON config")
 
-                # --- STEP 6 (Refactored): Inject RPU (P8) ---
-                print_header(f"Step 6: ({path_name}) Injecting converted P8 RPU")
+                # --- STEP 7: Inject RPU ---
+                print_header(f"Step 7: ({path_name}) Injecting RPU into encoded HEVC")
                 cmd_inject = [
                     'dovi_tool', 'inject-rpu',
                     '-i', temp_video_converted_hevc, # Use the converted .hevc
-                    '-r', temp_rpu_p8, # Use the NEW P8 RPU
+                    '-r', rpu_to_inject,           # Use the correct RPU file
                     '-o', temp_video_final_dv
                 ]
                 run_command(cmd_inject)
 
                 video_input_for_mux = temp_video_final_dv
                 map_str_for_mux = "0"
+                final_mux_step = "8" # Muxing is now the 8th logical step
 
             # -----------------------------------------------------------------
-            #  PATH C: UNSUPPORTED DV PROFILE
+            #  FALLBACK: UNSUPPORTED or NO DV PROFILE
+            #  It forces conversion to HDR10 by stripping all DV metadata.
             # -----------------------------------------------------------------
             else:
                 use_hdr_tags_xml = True
-                print_error(f"Unsupported or Undetected Dolby Vision Profile ({dv_profile_str}) detected.")
-                print_warn("Cannot perform DV conversion/preservation.")
-                print_warn("Attempting to proceed with HDR10 only (Fast Path logic).")
+                print_warn(f"Unsupported or No Dolby Vision Profile ({dv_profile_str}) detected.")
+                print_warn("WARNING: Forcing safe conversion to HDR10 by stripping all DV metadata.")
 
-                path_name = "Fallback Path (HDR Only)"
-                print_header(f"Step 4: ({path_name}) Converting video to temp MKV (HDR only)")
+                path_name = "Fallback Path (Safe HDR10)"
+                print_header(f"Step 4: ({path_name}) Converting video to temp MKV (Safe HDR10 only)")
 
                 temp_video_converted_mkv = os.path.join(output_dir, f"{file_basename}_temp_video_converted.mkv")
                 files_to_cleanup.append(temp_video_converted_mkv)
 
                 cmd_convert = ['ffmpeg']
-                cmd_convert.extend(['-i', source_file])
+                cmd_convert.extend(['-i', source_file]) # Input is the original MKV
                 cmd_convert.extend(['-map', f"0:{map_video}"])
                 cmd_convert.extend(['-an', '-sn'])
+
+                # This explicitly removes all DV metadata (VUI and RPU) to prevent the 0-byte RPU crash.
+                # Check the INPUT codec. Only apply the filter if the input is HEVC.
+                video_codec_name = video_stream_config.get('codec_name', 'unknown')
+
+                if 'hevc' in video_codec_name or 'h265' in video_codec_name:
+                    # Input is HEVC, so it MIGHT have unsupported DV (like P4).
+                    # Apply the filter to be safe.
+                    print_info(f"Input is HEVC. Adding bitstream filter to safely remove all DV metadata...")
+                    cmd_convert.extend(['-bsf:v', 'hevc_metadata=remove_dv_rpu=1'])
+                else:
+                    # Input is AVC (H.264) or other. It cannot have DV RPU.
+                    # Do NOT apply the filter.
+                    print_info(f"Input is {video_codec_name} (not HEVC). Skipping DV-related bitstream filters.")
+
                 if config['encoder'] == 'nvenc':
                     print_info("Nvidia encoder selected.")
                     cmd_convert.extend(['-c:v', 'hevc_nvenc', '-preset', config['encoder_params']['preset'], '-cq', config['encoder_params']['cq'], '-pix_fmt', 'p010le'])
                 elif config['encoder'] == 'amf':
                     print_info("AMD encoder selected.")
                     cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', config['encoder_params']['qp'], '-qp_i', config['encoder_params']['qp'], '-qp_b', config['encoder_params']['qp'], '-quality', config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
+
+                # These metadata flags are fine, they are for HDR10
                 if config.get('hdr10_master_display'):
                     print_info("Attempting to pass HDR10 Mastering Display via -metadata flag.")
                     cmd_convert.extend(['-metadata', f"mastering-display={config['hdr10_master_display']}"])
                 if config.get('hdr10_cll_fall'):
                     print_info("Attempting to pass HDR10 Content Light Level via -metadata flag.")
                     cmd_convert.extend(['-metadata', f"max-cll={config['hdr10_cll_fall']}"])
+
                 cmd_convert.append(temp_video_converted_mkv)
                 run_command(cmd_convert)
 
                 video_input_for_mux = temp_video_converted_mkv
                 map_str_for_mux = "0:0"
+                final_mux_step = "5"
 
         # --- Final Step: Muxing ---
         print_header(f"Step {final_mux_step}: Final Muxing (mkvmerge)")
