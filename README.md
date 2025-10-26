@@ -147,8 +147,13 @@ The script operates in one of two modes, depending on the arguments provided.
 
 ### A) Interactive Mode (for a single file)
 
-This mode is ideal for processing a single file or when you need to inject audio and subtitles from external sources (see Advanced Use Case).
-The script will guide you through the process with a series of questions and automatically suggest a clean filename.
+This mode is ideal for processing a single file or when you need to inject audio and subtitles from external sources (see Advanced Use Case). It guides you through the process step-by-step. Upon launch, choose one of two processing paths: 
+- **Full Conversion:** This path processes all streams and asks you to select the **Video Policy**:
+  -  **Encode:** Re-encode video quality/size using GPU (NVENC/AMF) settings.
+  - **Passthrough:** Copy video stream 1:1, preserving HDR10+.
+- **Extraction Only:** (No conversion) Select and demux a single track (audio, video, or subtitle) to a separate file (e.g., `.mka`, `.srt`, `.hevc`).
+
+The script will automatically suggest a clean filename and validate your choices against internal logic (e.g., blocking incompatible Profile 5 encode attempts).
 
 To run:
 ```bash
@@ -249,7 +254,7 @@ This is the most important setting, defining the high-level behavior of the scri
 
 - **passthrough_convert_dv_to_p8** (Boolean): Optional. Only used when video_policy is "passthrough". Defaults to false.
   - **false** (Pure Passthrough): Copies the video stream 1:1. The original Dolby Vision profile (e.g., P5 or P7) is preserved. This is recommended only for advanced players that can handle all DV profiles (e.g., Nvidia Shield), or if your player does not support DV at all and you just want to keep the HDR10+.
-  - **true** (Hybrid Passthrough): Copies the video stream while using dovi_tool to convert Dolby Vision profile P7 to a compatible Profile 8 (e.g., P8.1, P8.2). This is the recommended passthrough mode as it preserves HDR10+ and creates a widely compatible DV file.
+  - **true** (Hybrid Passthrough): Copies the video stream while using dovi_tool to convert Dolby Vision profile P7 to a compatible Profile 8 (e.g., P8.1, P8.2). This is the recommended passthrough mode as it preserves HDR10+ and creates a compatible DV file. Note that converting Profile 5 is currently not possible.
 
 ### Encoder Params (nvenc, amf)
 
