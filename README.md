@@ -1,6 +1,6 @@
 # MKV Factory
 
-#### Version 8.4
+#### Version 8.5
 
 A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10/HDR10+ metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
 
@@ -105,10 +105,10 @@ sudo apt install -y \
   mkvtoolnix=82.0-1build2 \
   wget
 
-wget https://github.com/quietvoid/dovi_tool/releases/download/2.1.0/dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
-tar -xvf dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
+wget https://github.com/quietvoid/dovi_tool/releases/download/2.3.1/dovi_tool-2.3.1-x86_64-unknown-linux-musl.tar.gz
+tar -xvf dovi_tool-2.3.1-x86_64-unknown-linux-musl.tar.gz
 sudo mv dovi_tool /usr/local/bin/
-rm dovi_tool-2.1.0-x86_64-unknown-linux-musl.tar.gz
+rm dovi_tool-2.3.1-x86_64-unknown-linux-musl.tar.gz
 ```
 The specific package versions are pinned to ensure script compatibility. These versions were tested with the mkv_factory logic.
 
@@ -118,7 +118,7 @@ The specific package versions are pinned to ensure script compatibility. These v
 sudo apt install python3-unidecode
 ```
 
-Your environment is now ready. Enter your mounted media folder and place the `mkv_factory.py` script inside to begin working.
+Your environment is now ready. Copy the `mkv_factory.py` file **and** the entire `lib` directory from the project repository into your working directory (e.g., your mounted media folder).
 
 
 ### Step 5: Running the Script
@@ -675,7 +675,9 @@ pip3 install colorama
 
 ### Step 5: Verify the Installation
 
-Open PowerShell (press Windows key > type PowerShell > press Enter) or open a Command Prompt.
+1. **Copy Script Files:** Copy the `mkv_factory.py` file **and** the entire `lib` directory from the project repository into the folder where you want to run the conversions (e.g., `C:\MyMovies`).
+
+2. Open PowerShell (press Windows key > type PowerShell > press Enter) or open a Command Prompt.
 Make sure you open a new window after editing the PATH variable.
 
 ```powershell
@@ -687,6 +689,8 @@ pip show colorama (optional)
 ```
 
 If all commands succeed, your environment is ready.
+
+
 `Note`: I did not test this tool on a Windows PC. If you find it working - let me know!
 
 ## Acknowledgements
