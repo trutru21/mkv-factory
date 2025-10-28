@@ -700,8 +700,11 @@ This project relies on the outstanding open-source work behind FFmpeg, MKVToolNi
 ## Future Plans
 
 This may, or may not happen :)
+- `HDRO10+` exctraction and reinjection
+- Flexible policies on Dolby Vision/HDR10+ (drop, keep, convert)
 - `hevc_qsv` support for integrated GPU's
 - Batch processing results file (detailed summary of processed files)
+- Refactor encoding path selection strategies
 
 ## Support / Buy Me a Coffee ☕️
 
