@@ -9,7 +9,7 @@ Smart track selection lets you automatically strip MKV's from unwanted languages
 
 Want to process entire folders? Specify all your policies (video, audio/subtitle languages, HDR rules) in a single profile.json, and the script will automate the rest.
 
-Need to fine-tune your MKVs? You can extract the best parts from different MKVs — video, audio, and subtitles — and merge them into one flawless MKV of your design.
+Need to fine-tune your MKVs? You can extract the best parts from different MKVs: video, audio, subtitles and merge them into one flawless MKV of your design.
 
 
 ---
