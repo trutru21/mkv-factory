@@ -1,6 +1,9 @@
 {
   "video_policy": "passthrough",
-  "passthrough_convert_dv_to_p8": true,
+  "hdr_policy": {
+    "dv_policy": "convert7_to_8",
+    "hdr10plus_policy": "keep"
+  },
   "audio_selection": {
     "policy": "best_per_language",
     "languages": ["eng", "pol"],

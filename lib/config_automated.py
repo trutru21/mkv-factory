@@ -2,6 +2,11 @@
 
 """
 MKV Factory - Automated Configuration Module
+Version 9.0
+
+Changes:
+- introduce keep, drop, convert HDR policies
+- remove HDR10 congig
 """
 
 import re
@@ -11,13 +16,13 @@ try:
     from .utils import (
         print_k, print_info, print_warn, print_error, print_header,
         get_unique_filename, get_unique_languages,
-        generate_plex_friendly_name, format_stream_description
+        generate_plex_friendly_name, format_stream_description, resolve_final_filename
     )
 except ImportError:
     from utils import (
         print_k, print_info, print_warn, print_error, print_header,
         get_unique_filename, get_unique_languages,
-        generate_plex_friendly_name, format_stream_description
+        generate_plex_friendly_name, format_stream_description, resolve_final_filename
     )
 
 
@@ -148,7 +153,6 @@ def configure_automated_run(
     profile_data: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Gathers settings for an automated conversion from a profile."""
-    # Profile has already been validated by validate_profile_globally() in main()
 
     print_header("Step 2: Configure Automated Conversion")
 
@@ -157,7 +161,8 @@ def configure_automated_run(
         'subtitle_tracks': [],
         'external_audio_files': [],
         'external_subtitle_files': [],
-        'has_dv': streams['has_dv'],
+        'has_dv': streams.get('has_dv', False),
+        'has_hdr10plus': streams.get('has_hdr10plus', False),
         'dv_profile': streams.get('dv_profile'),
         'final_filename': "",
         'video_stream': streams['video'][0],
@@ -167,23 +172,37 @@ def configure_automated_run(
         'encoder_params': {},
         'auto_cleanup_temp_video': True,
         'final_cleanup_policy': 'on_success',
-        'hdr10_master_display': streams.get('hdr10_master_display'),
-        'hdr10_cll_fall': streams.get('hdr10_cll_fall'),
         'video_policy': 'encode',
-        'passthrough_convert_dv_to_p8': False
+        'dv_policy': 'keep', # Default
+        'hdr10plus_policy': 'keep' # Default
     }
 
     # 0. Video Policy
     config['video_policy'] = profile_data.get('video_policy', 'encode')
     print_info(f"Video policy from profile: '{config['video_policy']}'")
 
-    # --- Read hybrid passthrough flag ---
-    if config['video_policy'] == 'passthrough':
-        config['passthrough_convert_dv_to_p8'] = profile_data.get('passthrough_convert_dv_to_p8', False)
-        if config['passthrough_convert_dv_to_p8']:
-            print_info("Hybrid Passthrough enabled: DV P5/P7 will be converted to P8.")
+    # --- 1. NEW: Read HDR Policies ---
+    hdr_policy = profile_data.get('hdr_policy', {})
 
-    # 1. Encoder Settings (Conditional)
+    # --- 1a. Dolby Vision Policy ---
+    # Get the policy intended by the user
+    dv_policy_from_profile = hdr_policy.get('dv_policy', 'keep')
+
+    # If user wants to convert, but it's already P8 treat it as 'keep'.
+    dv_profile_str = str(config.get('dv_profile'))
+    if dv_policy_from_profile == 'convert7_to_8' and dv_profile_str == '8':
+        print_info("Profile requests 'convert7_to_8', but file is already Profile 8. Setting DV policy to 'keep'.")
+        config['dv_policy'] = 'keep'
+    else:
+        config['dv_policy'] = dv_policy_from_profile
+
+    print_info(f"DV policy set to: '{config['dv_policy']}'")
+
+    # --- 1b. HDR10+ Policy (Placeholder) ---
+    config['hdr10plus_policy'] = hdr_policy.get('hdr10plus_policy', 'keep')
+    print_info(f"HDR10+ policy set to: '{config['hdr10plus_policy']}'")
+
+    # 2. Encoder Settings (Conditional)
     if config['video_policy'] == 'encode':
         config['encoder_params'] = profile_data[encoder_type]['encoder_params']
         params_str = ", ".join(f"{k}={v}" for k, v in config['encoder_params'].items())
@@ -193,13 +212,13 @@ def configure_automated_run(
         config['encoder_params'] = {}
         print_info("Passthrough mode: Encoder settings ignored.")
 
-    # 2. Cleanup Settings
+    # 3. Cleanup Settings
     cleanup_policy = profile_data.get('cleanup_policy', {})
     config['auto_cleanup_temp_video'] = cleanup_policy.get('auto_cleanup_temp_video', True)
     config['final_cleanup_policy'] = cleanup_policy.get('final_cleanup', 'on_success')
     print_info(f"Cleanup policy: Auto-delete temp video={config['auto_cleanup_temp_video']}, Final cleanup={config['final_cleanup_policy']}")
 
-    # 3. Audio Selection (Automated)
+    # 4. Audio Selection (Automated)
     audio_policy = profile_data.get('audio_selection')
     if audio_policy:
         selected_audio, default_audio_indices = find_best_tracks(streams['audio'], audio_policy)
@@ -215,7 +234,7 @@ def configure_automated_run(
     else:
         print_warn("No 'audio_selection' policy in profile. No audio will be included.")
 
-    # 4. Subtitle Selection (Automated)
+    # 5. Subtitle Selection (Automated)
     subtitle_policy = profile_data.get('subtitle_selection')
     if subtitle_policy:
         selected_subs, default_sub_indices = find_best_tracks(streams['subtitle'], subtitle_policy)
@@ -235,17 +254,9 @@ def configure_automated_run(
     else:
         print_info("No 'subtitle_selection' policy in profile. No subtitles will be included.")
 
-    # 5. Filename
+    # 6. Filename
     generated_name = generate_plex_friendly_name(source_file, config)
-    unique_filename = get_unique_filename(output_dir, generated_name)
-
-    if unique_filename != generated_name:
-        print_warn(f"File '{generated_name}' already exists in output directory.")
-        config['final_filename'] = unique_filename
-        print_info(f"Using new unique name: {unique_filename}")
-    else:
-        config['final_filename'] = generated_name
-
+    config['final_filename'] = resolve_final_filename(output_dir, generated_name)
     print_info(f"Final output filename set to: {config['final_filename']}")
 
     return config

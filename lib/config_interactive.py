@@ -2,6 +2,11 @@
 
 """
 MKV Factory - Interactive Configuration Module
+Version 9.0
+
+Changes:
+- introduce keep, drop, convert HDR policies
+- remove HDR10 config
 """
 
 import os
@@ -12,14 +17,14 @@ try:
     from .utils import (
         Kolory, print_k, print_info, print_warn, print_error, print_header,
         input_k, get_file_duration, get_unique_filename, get_unique_languages,
-        sanitize_filename, generate_plex_friendly_name, format_stream_description
+        sanitize_filename, generate_plex_friendly_name, format_stream_description, resolve_final_filename
     )
     from .validation import validate_encoder_param
 except ImportError:
     from utils import (
         Kolory, print_k, print_info, print_warn, print_error, print_header,
         input_k, get_file_duration, get_unique_filename, get_unique_languages,
-        sanitize_filename, generate_plex_friendly_name, format_stream_description
+        sanitize_filename, generate_plex_friendly_name, format_stream_description, resolve_final_filename
     )
     from validation import validate_encoder_param
 
@@ -260,6 +265,70 @@ def _ask_encoder_params(encoder_type: str) -> (Dict, bool):
 
     return encoder_params, auto_cleanup
 
+def _prompt_for_external_file(
+    stream_type: str,
+    source_duration: Optional[float]
+) -> List[Dict[str, Any]]:
+    """
+    Generic helper to prompt the user for one or more external files
+    (audio or subtitle).
+    Validates file existence and duration.
+    """
+
+    # Set prompts based on type
+    if stream_type == "audio":
+        type_label = "audio"
+        default_lang = "und"
+        default_title = "External Audio"
+    else:
+        type_label = "subtitle"
+        default_lang = "und"
+        default_title = "External Subtitle"
+
+    print_info(f"Configuring external {type_label} files.")
+
+    external_files = []
+
+    while True:
+        prompt_path = f"Enter path to external {type_label} file (or 'd' for done): "
+        path = input_k(prompt_path).strip().strip("'\"")
+
+        if path.lower() == 'd':
+            break
+
+        if not os.path.exists(path):
+            print_warn("File not found. Please try again.")
+            continue
+
+        # --- Duration Check ---
+        should_continue = True
+        if source_duration:
+            ext_duration = get_file_duration(path)
+            if ext_duration:
+                # Allow 1.0s difference
+                if abs(ext_duration - source_duration) > 1.0:
+                    print_warn(f"WARNING: Video is {source_duration:.2f}s, but this {type_label} is {ext_duration:.2f}s.")
+                    if input_k("Continue anyway? [y/N]: ").lower() != 'y':
+                        should_continue = False
+            else:
+                print_warn(f"WARNING: Could not determine the duration of the external file '{os.path.basename(path)}'.")
+                print_warn("It might be out of sync.")
+                if input_k(f"Do you want to use it anyway? [y/N]: ").lower() != 'y':
+                    should_continue = False
+
+        if not should_continue:
+            print_info("File discarded.")
+            continue
+
+        # --- Metadata Prompts (using defaults) ---
+        lang = input_k(f"Enter language code (e.g., pol, eng) [{default_lang}]: ") or default_lang
+        title = input_k(f"Enter track title [{default_title}]: ") or default_title
+
+        external_files.append({'path': path, 'lang': lang, 'title': title})
+        print_info(f"Added external {type_label} track.")
+
+    return external_files
+
 def configure_full_run(
     streams: Dict[str, Any],
     source_file: str,
@@ -276,7 +345,8 @@ def configure_full_run(
         'subtitle_tracks': [],
         'external_audio_files': [],
         'external_subtitle_files': [],
-        'has_dv': streams['has_dv'],
+        'has_dv': streams.get('has_dv', False),
+        'has_hdr10plus': streams.get('has_hdr10plus', False),
         'dv_profile': streams.get('dv_profile'),
         'final_filename': "",
         'video_stream': streams['video'][0],
@@ -286,140 +356,163 @@ def configure_full_run(
         'encoder_params': {},
         'auto_cleanup_temp_video': True, # Default for encode, ignored for passthrough
         'final_cleanup_policy': 'ask',
-        'hdr10_master_display': streams.get('hdr10_master_display'),
-        'hdr10_cll_fall': streams.get('hdr10_cll_fall'),
         'video_policy': 'encode',
-        'passthrough_convert_dv_to_p8': False
+        'dv_policy': 'keep', # Default
+        'hdr10plus_policy': 'keep' # Default
     }
 
     print_header("Step 2: Configure Full Conversion (Interactive)")
 
-    # Ask for video policy ---
+    dv_profile_str = str(config.get('dv_profile'))
+    p5_override_active = False # Flag to track if we forced passthrough
+
+    # --- 1. Ask for video policy (Encode/Passthrough) ---
     while True:
         print_k("\nSelect video processing mode:", bold=True)
-        print("  1. Encode (re-encode video, WARNING: this process will lose HDR10+ metadata, if present)")
-        print("  2. Passthrough (copy video stream, WARNING: this process will preserve HDR10+ metadata, if present)")
+        print("  1. Encode (change video size and quality)")
+        print("  2. Passthrough (copy video 1:1)")
         mode_choice = input_k("Choice [1]: ", Kolory.OKCYAN) or "1"
+
         if mode_choice == "1":
             config['video_policy'] = 'encode'
             print_info("Selected mode: Encode")
-            break
+
+            # --- P5 SANITY CHECK (PART 1) ---
+            # Check for P5 *immediately* after selecting encode
+            if dv_profile_str == '5':
+                print_warn(f"Dolby Vision Profile 5 detected.")
+                print_warn(f"Encode policy (NVENC/AMF) is INCOMPATIBLE with IPT-PQ-C2.")
+                print_warn(f"The encoder **misinterprets** these colors during processing.")
+                print_warn(f"This **permanently corrupts** the output video (bakes in purple/green artifacts).")
+                print_warn("OVERRIDE: Forcing 'Pure Passthrough' mode (1:1 copy) **to prevent video corruption during processing**.")
+
+                # Force override config
+                config['video_policy'] = 'passthrough'
+                config['dv_policy'] = 'keep'
+                config['encoder_params'] = {}
+                config['auto_cleanup_temp_video'] = False
+                p5_override_active = True # Set flag to skip DV policy question
+
+            break # Exit loop
+
         elif mode_choice == "2":
             config['video_policy'] = 'passthrough'
             print_info("Selected mode: Passthrough (Remux)")
-            # In passthrough, encoder params & temp video cleanup are irrelevant
             config['encoder_params'] = {}
             config['auto_cleanup_temp_video'] = False
-
-            # --- DV Profile Conversion Logic ---
-            dv_profile = config.get('dv_profile')
-            dv_profile_str = str(dv_profile) if dv_profile is not None else "None"
-
-            # --- Case 1: Profile 7 ---
-            # Conversion (P7 -> P8.1) is possible and recommended for compatibility.
-            if dv_profile_str == '7':
-                print_warn(f"Detected Dolby Vision Profile 7, which may not be compatible with all players.")
-                print_warn("Selecting 'No' (keeping P7) is only recommended for advanced players (e.g., Nvidia Shield).")
-                print_info("If your player *only* supports HDR10+ (and not DV P7), both options should work, but selecting 'No' will be faster.")
-                choice = input_k("Do you want to convert this profile to compatible Profile 8? (preserves HDR10+, recommended) [Y/n]: ")
-
-                if choice.lower() != 'n':
-                    config['passthrough_convert_dv_to_p8'] = True
-                    print_info("OK: DV Profile 7 will be converted to 8 during passthrough.")
-                else:
-                    config['passthrough_convert_dv_to_p8'] = False
-                    print_info(f"OK: DV Profile 7 will be passed through without conversion.")
-
-            # --- Case 2: Profile 5 ---
-            # Conversion (P5 -> P8) is technically possible but known to CORRUPT video with current tools.
-            elif dv_profile_str == '5':
-                print_warn(f"Detected Dolby Vision Profile 5!")
-                print_warn(f"This profile uses an incompatible color matrix (IPT-PQ-C2).")
-                print_warn(f"Current tools **FAIL** to convert this profile's colors correctly.")
-                print_warn(f"Attempting conversion ('Yes') WILL LIKELY CORRUPT the video output (purple/green artifacts).")
-                print_info(f"Selecting 'No' (Pure Passthrough) is the ONLY SAFE option to avoid corrupting the video during processing.")
-                choice = input_k("Do you still want to attempt conversion to Profile 8 (NOT RECOMMENDED, likely corrupts video)? [y/N]: ")
-
-                if choice.lower() == 'y':
-                    # User explicitly chose the dangerous option
-                    config['passthrough_convert_dv_to_p8'] = True
-                    print_warn("WARNING: Proceeding with Profile 5 conversion despite incompatibility. Output may be corrupted.")
-                else:
-                    # Default and safe option
-                    config['passthrough_convert_dv_to_p8'] = False
-                    print_info(f"OK: DV Profile 5 will be passed through without conversion (Pure Passthrough).")
-                    print_warn("Output file retains Profile 5 (IPT-PQ-C2) and requires compatible playback hardware (e.g., Shield).")
-
-            # --- Case 3: Profile 8 (Already compatible) ---
-            elif dv_profile_str == '8':
-                print_info("Detected compatible Dolby Vision Profile 8. No conversion needed.")
-                # Ensure flag is off, just in case
-                config['passthrough_convert_dv_to_p8'] = False
-
-            # --- Case 4: No DV or Unsupported ---
-            else:
-                print_info("No DV profile (or unsupported P4) detected. No conversion needed.")
-                # Ensure flag is off
-                config['passthrough_convert_dv_to_p8'] = False
-            # --- END DV Profile Conversion Logic ---
-
-            # Passthrough mode selected, now break the main loop
-            break # Exit the 'while True:' loop for video policy selection
+            break # Exit loop
         else:
             print_warn("Invalid choice. Please enter 1 or 2.")
 
+    # --- 2. Ask for HDR Metadata Policies ---
+
+    print_k("\n--- HDR Metadata Policy ---", Kolory.OKCYAN)
+
+    # --- 2a. Dolby Vision Policy ---
+    has_dv = config['has_dv']
+
+    if not has_dv:
+        print_info("No Dolby Vision detected. Skipping DV policy.")
+        config['dv_policy'] = 'keep' # Keep default
+
+    elif p5_override_active:
+        # P5 Sanity Check was triggered, so we locked the policy
+        print_info(f"Dolby Vision policy is locked to 'keep' (Pure Passthrough) due to Profile 5.")
+        # We already set config['dv_policy'] = 'keep'
+
+    else:
+        # Not P5, so we can ask the user safely
+        print_k(f"Dolby Vision detected (Profile {dv_profile_str}).", bold=True)
+        print_k("Select Dolby Vision Policy:", bold=True)
+
+        # Base options
+        if config['video_policy'] == 'passthrough':
+            print("  1. Keep (keeps original DV profile, e.g., P7 stays P7)")
+        else: # Encode mode
+            print("  1. Keep (keeps DV, and if DV is P7, converts to P8 to assure compatibility)")
+
+        print("  2. Drop (remove all Dolby Vision metadata)")
+
+        options = ["1", "2"]
+        default_choice = "1"
+
+        # Show "Convert" option only if it's P7 AND we are in passthrough mode
+        if dv_profile_str == '7' and config['video_policy'] == 'passthrough':
+            print("  3. Convert P7 to P8 (recommended for compatibility)")
+            options.append("3")
+        # Note: If profile is P8, "Convert" option is correctly hidden
+
+        prompt = f"Your choice ({', '.join(options)}) [{default_choice}]: "
+        choice = input_k(prompt, Kolory.OKCYAN) or default_choice
+
+        if choice == "2":
+            config['dv_policy'] = 'drop'
+            print_info("OK: Dolby Vision metadata will be dropped.")
+        elif choice == "3" and dv_profile_str == '7':
+            config['dv_policy'] = 'convert7_to_8'
+            print_info("OK: DV Profile 7 will be converted to 8.")
+        else: # Default or '1'
+            config['dv_policy'] = 'keep'
+            print_info("OK: Dolby Vision metadata will be kept (with profile-specific logic).")
+
+    # --- 2b. HDR10+ Policy ---
+    has_hdr10plus = streams.get('has_hdr10plus', False)
+
+    if not has_hdr10plus:
+        print_info("No HDR10+ detected. Skipping HDR10+ policy.")
+        config['hdr10plus_policy'] = 'keep' # Keep default
+    else:
+        print_k("HDR10+ metadata detected.", bold=True)
+        print("  1. Keep (default)")
+        print("  2. Drop (remove all HDR10+ metadata)")
+
+        choice_hdr10 = input_k("Select HDR10+ Policy [1]: ", Kolory.OKCYAN) or "1"
+
+        if choice_hdr10 == "2":
+            config['hdr10plus_policy'] = 'drop'
+            print_info("OK: HDR10+ metadata will be dropped.")
+        else:
+            config['hdr10plus_policy'] = 'keep'
+            print_info("OK: HDR10+ metadata will be kept.")
+
+    # --- 3. Load or Ask for Encoder Params ---
     loaded_from_profile = False
     if profile_data:
-        # Load cleanup policy (always load this)
         cleanup_profile = profile_data.get('cleanup_policy', {})
         config['auto_cleanup_temp_video'] = cleanup_profile.get('auto_cleanup_temp_video', True)
         if 'final_cleanup' in cleanup_profile:
             config['final_cleanup_policy'] = cleanup_profile['final_cleanup']
 
-        # --- Load encoder settings ONLY if policy is 'encode' ---
+        # This check is now safe, it respects the P5 override
         if config['video_policy'] == 'encode':
-            # We assume profile is valid due to global validation
             config['encoder_params'] = profile_data[encoder_type]['encoder_params']
             params_str = ", ".join(f"{k}={v}" for k, v in config['encoder_params'].items())
             cleanup_str = "Yes" if config['auto_cleanup_temp_video'] else "No"
             final_cleanup_str = config.get('final_cleanup_policy', 'ask')
             print_info(f"Loaded profile settings for '{encoder_type}': {params_str}")
             print_info(f"Loaded cleanup policy: Auto-cleanup temp video={cleanup_str}, Final cleanup={final_cleanup_str}")
-            loaded_from_profile = True # Mark as loaded only if we actually loaded encoder params
+            loaded_from_profile = True
         else:
-            # Policy is passthrough, even if profile exists, don't load encoder params
             print_info("Passthrough mode selected, skipping profile encoder settings.")
 
-    # --- Ask interactively ONLY if policy is 'encode' AND not loaded from profile ---
+    # This 'if' block is also now safe thanks to the P5 override
     if config['video_policy'] == 'encode' and not loaded_from_profile:
-        # Ask for params interactively
         params, cleanup = _ask_encoder_params(encoder_type)
         config['encoder_params'] = params
         config['auto_cleanup_temp_video'] = cleanup
     elif config['video_policy'] == 'passthrough':
          print_info("Passthrough mode selected, skipping interactive encoder configuration.")
 
-    # --- Filename Logic ---
+    # --- 4. Filename Logic ---
+
     suggested_name = generate_plex_friendly_name(source_file, config)
     prompt = f"Enter the final output filename [{suggested_name}]: "
     user_filename = input_k(prompt)
     chosen_filename = user_filename or suggested_name
 
-    sane_filename = sanitize_filename(chosen_filename)
-    if sane_filename != chosen_filename:
-        print_warn(f"Filename was sanitized for safety:")
-        print_info(f"  Original: {chosen_filename}")
-        print_info(f"  Cleaned:  {sane_filename}")
-        chosen_filename = sane_filename
+    config['final_filename'] = resolve_final_filename(output_dir, chosen_filename)
 
-    unique_filename = get_unique_filename(output_dir, chosen_filename)
-
-    if unique_filename != chosen_filename:
-        print_warn(f"File '{chosen_filename}' already exists.")
-        config['final_filename'] = unique_filename
-        print_info(f"Using new unique name: {unique_filename}")
-    else:
-        config['final_filename'] = chosen_filename
+    # --- 5. Audio & Subtitle Selection ---
 
     # ### Internal Audio Selection ###
     print_k("\n--- Audio Configuration ---", Kolory.OKCYAN)
@@ -428,37 +521,12 @@ def configure_full_run(
             stream_type="audio",
             available_streams=streams['audio']
         )
-
-    # ### External Audio Selection ###
     else:
-        print_info("Configuring external audio tracks.")
-        while True:
-            path = input_k("Enter path to external audio file (or 'd' for done): ").strip().strip("'\"")
-            if path.lower() == 'd':
-                break
-            if not os.path.exists(path):
-                print_warn("File not found. Please try again.")
-                continue
-            should_continue = True
-            if source_duration:
-                ext_duration = get_file_duration(path)
-                if ext_duration:
-                    if abs(ext_duration - source_duration) > 1.0:
-                        print_warn(f"WARNING: Video is {source_duration:.2f}s, but this audio is {ext_duration:.2f}s.")
-                        if input_k("Continue anyway? [y/N]: ").lower() != 'y':
-                            should_continue = False
-                else:
-                    print_warn(f"WARNING: Could not determine the duration of the external file '{os.path.basename(path)}'.")
-                    print_warn("It might be out of sync.")
-                    if input_k("Do you want to use it anyway? [y/N]: ").lower() != 'y':
-                        should_continue = False
-            if not should_continue:
-                print_info("File discarded.")
-                continue
-            lang = input_k("Enter language code (e.g., pol, eng) [und]: ") or 'und'
-            title = input_k("Enter track title [External Audio]: ") or 'External Audio'
-            config['external_audio_files'].append({'path': path, 'lang': lang, 'title': title})
-            print_info("Added external audio track.")
+        print_info("Skipping internal audio tracks.")
+        config['external_audio_files'] = _prompt_for_external_file(
+            stream_type="audio",
+            source_duration=source_duration
+        )
 
     # ### Internal Subtitle Selection ###
     print_k("\n--- Subtitle Configuration ---", Kolory.OKCYAN)
@@ -467,41 +535,15 @@ def configure_full_run(
             stream_type="subtitle",
             available_streams=streams['subtitle']
         )
-
-    # ### External Subtitle Selection ###
     else:
-        print_info("Configuring external subtitle files.")
-        while True:
-            path = input_k("Enter path to external subtitle file (or 'd' for done): ").strip().strip("'\"")
-            if path.lower() == 'd':
-                break
-            if not os.path.exists(path):
-                print_warn("File not found. Please try again.")
-                continue
-            should_continue = True
-            if source_duration:
-                ext_duration = get_file_duration(path)
-                if ext_duration:
-                    if abs(ext_duration - source_duration) > 1.0:
-                        print_warn(f"WARNING: Video is {source_duration:.2f}s, but this subtitle is {ext_duration:.2f}s.")
-                        if input_k("Continue anyway? [y/N]: ").lower() != 'y':
-                            should_continue = False
-                else:
-                    print_warn(f"WARNING: Could not determine the duration of the external file '{os.path.basename(path)}'.")
-                    print_warn("It might be out of sync.")
-                    if input_k("Do you want to use it anyway? [y/N]: ").lower() != 'y':
-                        should_continue = False
-            if not should_continue:
-                print_info("File discarded.")
-                continue
-            lang = input_k("Enter language code (e.g., pol) [pol]: ") or 'pol'
-            title = input_k("Enter track title [Polish Subtitle]: ") or 'Polish Subtitle'
-            config['external_subtitle_files'].append({'path': path, 'lang': lang, 'title': title})
-            print_info("Added external subtitle file.")
+        print_info("Skipping internal subtitle tracks.")
+        config['external_subtitle_files'] = _prompt_for_external_file(
+            stream_type="subtitle",
+            source_duration=source_duration
+        )
 
-    # --- Default Track Selection ---
+    # --- 6. Default Track Selection ---
     print_k("\n--- Default Track Selection ---", Kolory.OKCYAN)
-
     all_audio_tracks = config['audio_tracks'] + config['external_audio_files']
     if len(all_audio_tracks) > 1:
         print_k("Select default AUDIO track:", bold=True)
@@ -511,7 +553,6 @@ def configure_full_run(
             else:
                 desc = f"[Ext.] {track['lang'].upper()} - {track['title']}"
             print(f"  {i+1}. {desc}")
-
         while True:
             try:
                 choice_str = input_k(f"Your choice (1-{len(all_audio_tracks)}) [1]: ") or "1"
@@ -533,12 +574,10 @@ def configure_full_run(
             else:
                 desc = f"[Ext.] {track['lang'].upper()} - {track['title']}"
             print(f"  {i+1}. {desc}")
-
         while True:
             try:
                 choice_str = input_k(f"Your choice (0-{len(all_subtitle_tracks)}) [0]: ") or "0"
                 choice = int(choice_str)
-
                 if choice == 0:
                     config['default_subtitle_index'] = -1
                     break

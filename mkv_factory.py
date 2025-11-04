@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
 
 """
-MKV Conversion & Remuxing Factory (Version 8.5)
+MKV Conversion & Remuxing Factory (Version 9.0)
 Copyright (c) 2025 Tomasz Rurarz
 
 Changes
-- major code refactor
-
-Fixes
-- framerate issue in D7/8 path
+- introduce processing strategies
+- introduce HDR policies (drop, keep, convert)
+- introduce HDR10+ handling
 
 Features:
 - Full batch processing support (-s, -o, -p) with configurable policies.
 - Interactive mode for single files and maximum control.
-- Smart 'audio_selection' and 'subtitle_selection'.
+- Flexible Dynamic HDR Handling: Independent policies for Dolby Vision (keep, drop, convert) and HDR10+ (keep, drop).
+- Dual-Mode Video Processing:
+  - Passthrough: Copy video stream, respecting DV and HDR10+ policies.
+  - Encode: Re-encode video, respecting DV (re-injection) and HDR10+ (re-injection) policies.
+- Hardware Acceleration: Smart encoder detection (Nvidia NVENC vs. AMD AMF).
+- Smart 'audio_selection' and 'subtitle_selection' with language and codec priorities.
 - Advanced file naming logic (unique names, special chars, media format).
-- Profile support via '-p' argument.
-- Smart encoder detection (Nvidia NVENC vs. AMD AMF).
-- Separate configuration for NVENC (CQ/Preset) and AMF (QP/Quality).
-- Dolby Vision (Profile 8) passthrough using dovi_tool, with auto-conversion for 7.x profiles.
-- HDR10 tags reinjection.
-- Video passthrough mode with/without DV profile conversion, while keeping HDR10+ data intact.
-- Correct demuxing using 'mkvextract'.
-- External audio/subtitle injection (interactive mode only).
-- Duration check for external files.
+- External audio/subtitle injection (interactive mode only) with duration check.
 - Smart cleanup of temporary files based on profile policy.
 """
 

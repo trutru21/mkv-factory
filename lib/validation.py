@@ -2,6 +2,10 @@
 
 """
 MKV Factory - Profile Validation Module
+Version 9.0
+
+Changes:
+- introduce validation of keep, drop, convert HDR policies
 """
 
 from typing import Dict, Any
@@ -20,7 +24,6 @@ def validate_encoder_param(encoder_type: str, param_key: str, param_value: str):
 
     Uses sane/practical ranges, not ffmpeg's technical limits.
     """
-
     # Practical quality range to prevent absurd values (like 1000)
     SANE_QUALITY_MIN = 10
     SANE_QUALITY_MAX = 40
@@ -73,7 +76,7 @@ def _validate_selection_block(sel_block: Dict, block_name: str):
     # Check 'languages'
     langs = sel_block.get('languages')
     if langs is None:
-        # 'languages' key is optional (though usually desired)
+        # 'languages' key is optional (though desired)
         pass
     elif isinstance(langs, str) and langs == 'all':
         # This is valid: "languages": "all"
@@ -105,6 +108,27 @@ def _validate_selection_block(sel_block: Dict, block_name: str):
         raise ValueError(f"'{block_name}.exclude_titles_containing' must be a list of strings.")
 
 
+def _validate_hdr_policy_block(hdr_policy: Dict):
+    """
+    Validates the 'hdr_policy' object.
+    Raises ValueError on failure.
+    """
+    if not isinstance(hdr_policy, dict):
+        raise ValueError("'hdr_policy' must be a dictionary.")
+
+    # --- Validate dv_policy ---
+    dv_policy = hdr_policy.get('dv_policy')
+    valid_dv_policies = ['keep', 'drop', 'convert7_to_8']
+    if dv_policy is not None and dv_policy not in valid_dv_policies:
+            raise ValueError(f"'hdr_policy.dv_policy' must be one of {valid_dv_policies}.")
+
+    # --- Validate hdr10plus_policy (placeholder) ---
+    hdr10plus_policy = hdr_policy.get('hdr10plus_policy')
+    valid_hdr10plus_policies = ['keep', 'drop']
+    if hdr10plus_policy is not None and hdr10plus_policy not in valid_hdr10plus_policies:
+            raise ValueError(f"'hdr_policy.hdr10plus_policy' must be one of {valid_hdr10plus_policies}.")
+
+
 ### Master validation function for the entire profile.json
 def validate_profile_globally(profile_data: Dict, detected_encoder: str):
     """
@@ -122,12 +146,10 @@ def validate_profile_globally(profile_data: Dict, detected_encoder: str):
 
     print_info(f"Video policy set to: '{video_policy}'")
 
-    # --- Validate the hybrid passthrough flag ---
-    # This flag is only relevant if video_policy is 'passthrough', but we validate it
-    # globally if it exists, to catch typos early.
-    passthrough_convert_dv = profile_data.get('passthrough_convert_dv_to_p8')
-    if passthrough_convert_dv is not None and not isinstance(passthrough_convert_dv, bool):
-        raise ValueError("'passthrough_convert_dv_to_p8' must be true or false.")
+    # --- Validate HDR Policy ---
+    hdr_policy_block = profile_data.get('hdr_policy')
+    if hdr_policy_block: # This block is optional
+        _validate_hdr_policy_block(hdr_policy_block)
 
     # 1. Validate Encoder Params (ONLY if policy is 'encode')
     if video_policy == 'encode':
@@ -136,7 +158,7 @@ def validate_profile_globally(profile_data: Dict, detected_encoder: str):
             if not encoder_params or not isinstance(encoder_params, dict):
                 raise ValueError(f"'{detected_encoder}.encoder_params' is missing or not a dictionary (required for 'encode' policy).")
 
-            # Re-use our existing validator for each param
+            # Re-use existing validator for each param
             try:
                 for key, value in encoder_params.items():
                     validate_encoder_param(detected_encoder, key, str(value))

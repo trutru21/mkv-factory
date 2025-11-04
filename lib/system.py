@@ -2,6 +2,10 @@
 
 """
 MKV Factory - System & Environment Check Module
+Version: 9.0
+
+Changes
+- add hdr10plus_tool check
 """
 
 import subprocess
@@ -15,8 +19,15 @@ except ImportError:
     from utils import print_header, print_info, print_error, print_warn
 
 # --- Tool Configuration ---
-WYMAGANE_NARZEDZIA = ['ffmpeg', 'ffprobe', 'mkvmerge', 'dovi_tool', 'mkvextract']
-
+# All tools are required for the script to run
+REQUIRED_TOOLS = [
+    'ffmpeg',
+    'ffprobe',
+    'mkvmerge',
+    'dovi_tool',
+    'mkvextract',
+    'hdr10plus_tool'
+]
 
 # --- Phase 0: Environment Check ---
 
@@ -36,17 +47,16 @@ def check_tools_and_encoders() -> Optional[str]:
     """
     print_header("Phase 0: Checking Environment")
     missing_tools = []
-    for tool in WYMAGANE_NARZEDZIA:
+    for tool in REQUIRED_TOOLS:
         if shutil.which(tool) is None:
             missing_tools.append(tool)
 
     if missing_tools:
         print_error(f"Missing required tools: {', '.join(missing_tools)}")
-        print_warn("Please ensure ffmpeg, mkvtoolnix, and dovi_tool are installed")
-        print_warn("and accessible in your container's PATH.")
+        print_warn("Please ensure ffmpeg, mkvtoolnix, dovi_tool, and hdr10plus_tool are installed and accessible in your container's PATH")
         return None
 
-    print_info("All required tools (ffmpeg, ffprobe, mkvmerge, mkvextract, dovi_tool) are available.")
+    print_info(f"All required tools ({', '.join(REQUIRED_TOOLS)}) are available.")
 
     if check_encoder_support('hevc_nvenc'):
         print_info("OK: Nvidia (hevc_nvenc) encoder detected.")

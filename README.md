@@ -1,56 +1,53 @@
 # MKV Factory
 
-#### Version 8.5
+#### Version 9.0
 
-A smart, profile-driven Python tool for automating MKV conversion and remuxing. Built for high-quality Blu-ray rips to preserve Dolby Vision and HDR10/HDR10+ metadata. It compresses high-bitrate video files into smaller, media-server-ready MKVs with minimal to no perceptible loss in visual quality.
 
-Want to process entire folders? This tool got you covered. Specify the processing policies (e.g., encoding quality, audio/subtitle languages, etc.) in a profile, and the script will take care of the rest.
+A smart, profile-driven Python tool for automating GPU-enabled MKV conversion and remuxing built to handle HDR metadata, letting you define granular policies: keep, drop, or convert Dolby Vision / HDR10+ metadata, ensuring compatibility with your media server (Plex, Jellyfin, etc.) and players.
 
-Need to fine-tune your MKVs? You can easily extract the best parts from different MKVs — video, audio, and subtitles — and merge them into one flawless MKV of your design!
+Smart track selection lets you automatically strip MKV's from unwanted languages and subs, while encoding the video to space-saving format in the same time.
+
+Want to process entire folders? Specify all your policies (video, audio/subtitle languages, HDR rules) in a single profile.json, and the script will automate the rest.
+
+Need to fine-tune your MKVs? You can extract the best parts from different MKVs — video, audio, and subtitles — and merge them into one flawless MKV of your design.
+
 
 ---
 ## Key Features
 
-- **Profile-driven Automation:** Define your preferences in a `profile.json` file – encoding settings, language selections, cleanup rules – and let the script handle the repetitive work.
+- **Profile-driven Automation:** Define your preferences in a `profile.json` file – encoding settings, language selections, and cleanup rules.
 - **Dual-Mode Operation:**
-    - **Interactive Mode:** Process single files step-by-step with full control over track selection. Ideal for unique cases or testing profiles.
-    - **Batch Mode:** Point the script at a source folder, provide a profile, and let it process all video files automatically according to your rules.
-- **Efficient HEVC Encoding:** Transcode large Blu-ray rips (H.264 or HEVC) to space-saving H.265/HEVC using hardware acceleration.
-- **Full Video Passthrough (Remux):** Don't need to re-encode? Use the `passthrough` mode to copy the video stream untouched while still allowing you to select and remux audio/subtitle tracks.
-- **Dolby Vision Profile Conversion:** Automatically converts incompatible Blu-ray Dolby Vision 7 profile to the widely compatible **Profile 8**, ensuring playback on media servers like Plex and modern devices.
-- **Hardware Acceleration:** Automatically detects Nvidia (NVENC) or AMD (AMF) hardware encoders for fast conversions.
+    - **Interactive Mode:** Process single files step-by-step with full control over tracks selection.
+    - **Batch Mode:** Select a source folder, provide a profile, and let it process all video files according to your rules.
+- **Efficient HEVC Encoding:** Transcode large Blu-ray rips to space-saving H.265/HEVC using Nvidia or AMD hardware acceleration.
+- **Flexible Video Passthrough (Remux):** Copy the video stream 1:1, or perform lossless hybrid operations like converting DV P7->P8 or stripping metadata (DV/HDR10+) while preserving the original video quality.
+- **Advanced Dynamic HDR Control**: Full control over dynamic HDR metadata. Independently manage Dolby Vision (keep, drop, convert P7->P8) and HDR10+ (keep, drop) policies.
 - **Smart Track Selection:** Define preferred languages, codec priorities (e.g., TrueHD > DTS > AC3), and exclusion keywords (e.g., "commentary") in your profile for automated, intelligent audio and subtitle track selection.
 - **Flexible Stream Injection:** Ever wished you could merge the best parts of two rips? Now you can! Easily combine video, audio, and subtitles from any source into your perfect MKV.
-- **Reliable Extraction:** Uses mkvextract for demuxing streams, avoiding the corruption issues that can occur with ffmpeg's -c copy on complex HEVC streams.
-- **Plex-Friendly Naming:** Generates clean, organized filenames compliant with media server standards (e.g., `Movie Title (Year) [2160p HEVC CQ16 DV].mkv` or `Movie Title (Year) [1080p HEVC REMUX HDR].mkv`).
+- **Plex-Friendly Naming:** Generates clean, organized filenames compliant with media server standards (e.g., `Movie Title (Year) [2160p HEVC CQ16 DV].mkv`).
 - **Detailed Logging:** Creates a timestamped log file for each run, making it easy to track progress, verify settings, and troubleshoot issues.
 
-### HDR10+ and Dolby Vision Profile 5 Limitation Notice
+### Static HDR10 and Dolby Vision Profile 5 Limitation Notice
 
-Currently, this tool can only preserve (transfer) HDR10+ metadata when using the **Passthrough Mode**.
+**Static HDR10:** This script attempts to preserve static HDR10 metadata for files without DV/HDR10+ by mapping it during the encode. However, this method's success is not guaranteed and depends on ffmpeg's ability to read the source metadata. For files that have static HDR10 **only**, using Passthrough Mode is the most reliable method to ensure it is preserved. For files with DV/HDR10+ the static tags are included in the respective streams for both Encode and Passthrough modes.
 
-The **Encode Mode** uses hardware encoders (NVENC/AMF) which **will discard** all HDR10+ metadata, at this time.
-
-**Recommendation:**
-- **To preserve HDR10+:** You MUST select **Passthrough Mode** (in interactive mode) or set `"video_policy": "passthrough"` (in your profile.json).
-- **To also ensure Dolby Vision compatibility:** Select **Passthrough Mode** and answer **"Yes"** to the DV conversion question (or set `"passthrough_convert_dv_to_p8": true`). This is the *only* way to preserve HDR10+ **and** convert DV P7 to P8 at the same time.
-
-- **Dolby Vision Profile 5 :** Processing is INCOMPATIBLE & BLOCKED. This profile's IPT-PQ-C2 color matrix cannot be correctly processed by the encoding (NVENC/AMF) or conversion (`dovi_tool`) tools used in this script. Attempting either would result in corrupted (purple/green) video.
-    - The script detects Profile 5 and **automatically forces Pure Passthrough mode** (1:1 copy) if you select Encode or Hybrid Passthrough, preventing video corruption during processing.
-    - **IMPORTANT:** The resulting output file will retain the original Profile 5 stream and **will likely appear purple/green on most players** due to lack of IPT-PQ-C2 support. Correct playback requires specific compatible hardware (e.g., Nvidia Shield).
+**Dolby Vision Profile 5 :** Encoding DV5 is incompatible. This profile's IPT-PQ-C2 color matrix cannot be correctly processed by the tools used in this script. Attempting would result in corrupted (purple/green) video.
+    - The script detects DV P5 and **automatically forces pure Passthrough mode** (1:1 copy) to prevent video corruption during processing.
+    - The resulting output file will retain the original Profile 5 stream and will likely appear purple/green on most players due to lack of IPT-PQ-C2 support. Correct playback requires compatible hardware (e.g., Nvidia Shield).
 
 ---
 ## Prerequisites
 
 Before running the script, you must have the following software packages installed. The script will verify the presence of the specific command-line tools they provide.
 
-- **FFmpeg:** Provides the core `ffmpeg` (for encoding) and `ffprobe` (for analysis) commands. Must be compiled with support for your hardware encoder (`hevc_nvenc` for Nvidia, `hevc_amf` for AMD).
-- **MKVToolNix:** Provides the `mkvmerge` (for muxing) and `mkvextract` (for demuxing) commands.
-- **dovi_tool:** The essential stand-alone tool for handling Dolby Vision metadata.
+- **FFmpeg:** Provides the core `ffmpeg` and `ffprobe` commands.
+- **MKVToolNix:** Provides the `mkvmerge` and `mkvextract`commands.
+- **dovi_tool:** Handles Dolby Vision metadata.
+- **hdr10plus_tool:** Handles HDR10+ metadata.
 
 ### Optional (but recommended)
 
-By default, the script's autofilename logic will remove non-ASCII characters (like ś, π, ó, etc.). If you want to transliterate them (e.g., ś -> s), you must install the Unidecode library (see the next chapter for details).
+By default, the script 's autofilename logic will remove non-ASCII characters (like ś, π, ó, etc.). If you want to transliterate them (e.g., ś -> s), you must install the Unidecode library (see the next chapter for details).
 
 ---
 ## Environment Setup (Linux)
@@ -109,6 +106,11 @@ wget https://github.com/quietvoid/dovi_tool/releases/download/2.3.1/dovi_tool-2.
 tar -xvf dovi_tool-2.3.1-x86_64-unknown-linux-musl.tar.gz
 sudo mv dovi_tool /usr/local/bin/
 rm dovi_tool-2.3.1-x86_64-unknown-linux-musl.tar.gz
+
+wget https://github.com/quietvoid/hdr10plus_tool/releases/download/1.5.2/hdr10plus_tool-1.5.2-x86_64-unknown-linux-musl.tar.gz
+tar -xvf hdr10plus_tool-1.5.2-x86_64-unknown-linux-musl.tar.gz
+sudo mv hdr10plus_tool /usr/local/bin/
+rm hdr10plus_tool-1.5.2-x86_64-unknown-linux-musl.tar.gz
 ```
 The specific package versions are pinned to ensure script compatibility. These versions were tested with the mkv_factory logic.
 
@@ -150,7 +152,7 @@ The script operates in one of two modes, depending on the arguments provided.
 This mode is ideal for processing a single file or when you need to inject audio and subtitles from external sources (see Advanced Use Case). It guides you through the process step-by-step. Upon launch, choose one of two processing paths: 
 - **Full Conversion:** This path processes all streams and asks you to select the **Video Policy**:
   -  **Encode:** Re-encode video quality/size using GPU (NVENC/AMF) settings.
-  - **Passthrough:** Copy video stream 1:1, preserving HDR10+.
+  - **Passthrough:** Copy video stream 1:1.
 - **Extraction Only:** (No conversion) Select and demux a single track (audio, video, or subtitle) to a separate file (e.g., `.mka`, `.srt`, `.hevc`).
 
 The script will automatically suggest a clean filename and validate your choices against internal logic (e.g., blocking incompatible Profile 5 encode attempts).
@@ -239,22 +241,37 @@ The script now converts your movie using the video from Movie_A.mkv and the exte
 
 The `profile.json` file defines all rules for Batch Mode and some values for interactive mode.
 
-### Video Policy
+### Video & HDR Policies
 
-This is the most important setting, defining the high-level behavior of the script.
+These are the most important settings, defining the high-level behavior of the script.
 ```json
 {
   "video_policy": "passthrough",
-  "passthrough_convert_dv_to_p8": true
+  "hdr_policy": {
+    "dv_policy": "convert7_to_8",
+    "hdr10plus_policy": "keep"
+  }
 }
 ```
 - **video_policy** (String): Defines the main video processing method.
-  - **encode** (default): Re-encodes the video stream using the nvenc or amf settings. This is a "lossy" process. WARNING: This mode will lose all HDR10+ metadata.
-  - **passthrough**: Copies the original video stream without re-encoding. This is a "lossless" process. This mode preserves HDR10+ metadata. The nvenc and amf sections are ignored.
+  - **encode** (default): Re-encodes the video stream using the nvenc or amf settings to reduce the file size. This is a "lossy" process.
+  - **"passthrough"**: Copies the original video stream without re-encoding. This is a "lossless" process. The nvenc and amf sections are ignored.
 
-- **passthrough_convert_dv_to_p8** (Boolean): Optional. Only used when video_policy is "passthrough". Defaults to false.
-  - **false** (Pure Passthrough): Copies the video stream 1:1. The original Dolby Vision profile (e.g., P5 or P7) is preserved. This is recommended only for advanced players that can handle all DV profiles (e.g., Nvidia Shield), or if your player does not support DV at all and you just want to keep the HDR10+.
-  - **true** (Hybrid Passthrough): Copies the video stream while using dovi_tool to convert Dolby Vision profile P7 to a compatible Profile 8 (e.g., P8.1, P8.2). This is the recommended passthrough mode as it preserves HDR10+ and creates a compatible DV file. Note that converting Profile 5 is currently not possible.
+- **hdr_policy** (Object): This (optional) object gives you granular control over Dolby Vision and HDR10+ metadata.
+  - **dv_policy** (String): Defines how to handle Dolby Vision. Defaults to `keep`.
+    - **keep**: Keeps the Dolby Vision metadata.
+      - In `passthrough` mode, this preserves the original DV profile (P7 stays P7).
+      - In `encode` mode, this preserves the metadata but forces a DV P7->P8 conversion to ensure compatibility.
+    - **drop** Removes all Dolby Vision (RPU) metadata from the file.
+    - **convert7_to_8**: Ensures the output is Dolby Vision Profile 8.
+      - In `passthrough` mode, this runs dovi_tool convert to convert P7 to P8.
+      - In `encode` mode, this behaves identically to "keep".
+      - If the file is already P8, this behaves identically to `keep`.
+      
+      `Note:` Converting Dolby Vision Profile 5 is currently not supported. If DV P5 is detected, and override is enabled, forcing the `video_policy` to `passthrough` and `hdr_policy` to `keep`.
+  - **hdr10plus_policy** (String): Defines how to handle HDR10+ metadata. Defaults to `keep`.
+    - **keep**: Preserves the HDR10+ metadata.
+    - **drop**: Removes all HDR10+ metadata.
 
 ### Encoder Params (nvenc, amf)
 
@@ -309,16 +326,16 @@ Defines automatic stream selection rules.
   - **best_per_language** (default) — Selects one best track per language defined in languages.
 - **languages** (String or List) — Used only when policy = "best_per_language".
   - Accepts language codes in ISO 639-2 (three-letter, e.g. "eng", "pol", "spa").
-  - "all" — processes all detected languages using the defined filters.
+  - **all** — processes all detected languages using the defined filters.
   - ["eng", "pol"] — processes only tracks matching those language codes.
 - **preferred_codecs** (List) — Used only with "best_per_language". List of codecs ordered from most to least preferred. Note that if the mkv does not contain any of the "preferred" codecs, the script will simply choose another one.
-  - Example: ["truehd", "dts-hd ma", "eac3", "dts", "ac3"] - processes all tracks matching the defined filters.
+  - `Example:` ["truehd", "dts-hd ma", "eac3", "dts", "ac3"] - processes all tracks matching the defined filters.
 - **exclude_titles_containing** (List) — Used only with "best_per_language". List of case-insensitive phrases that disqualify a track.
-  - Example: ["commentary", "director", "description"]
+  - `Example:` ["commentary", "director", "description"]
 - **default_track_language** (String) — Language code (three letters, e.g., "eng" or "pol") to set as default. If multiple matches are found, the first one is marked as default. Can also be set to "none" for subtitles (if set to "none" ensure the default_mode flag is set to "none as well!).
 - **default_mode** (String) (Subtitles only) — Controls default subtitle behavior. 
-  - "first" — Sets the first subtitle track as default if default_track_language isn’t found (only if subtitles exist). 
-  - "none" — Recommended if you don’t want any default subtitles. Ensures no default track is set.
+  - **first** — Sets the first subtitle track as default if default_track_language isn’t found (only if subtitles exist). 
+  - **none** — Recommended if you don’t want any default subtitles. Ensures no default track is set.
 
 ### Cleanup Policy
 
@@ -358,7 +375,8 @@ Here are a few profile examples for typical usecases.
 
 `Example 1: Encode (High Quality, All Tracks)` 
 This profile will:
-- transcode video stream with high quality settings (losing HDR10+),
+- transcode video stream with high quality settings,
+- keep Dolby Vision (forcing P7->P8 conversion if needed),
 - include all of the found audio and subtitles,
 - set the default audio to English,
 - set the default subtitles to "none",
@@ -367,6 +385,10 @@ This profile will:
 ```json
 {
   "video_policy": "encode",
+  "hdr_policy": {
+    "dv_policy": "keep",
+    "hdr10plus_policy": "keep"
+  },
   "nvenc": {
     "encoder_params": {
       "cq": "16",
@@ -401,7 +423,8 @@ This profile will:
 
 `Example 2: Encode (Filtered Tracks)`
 This profile will:
-- transcode video stream with high quality settings (losing HDR10+),
+- transcode video stream with high quality settings,
+- keep Dolby Vision (forcing P7->P8 conversion if needed),
 - exclude commentaries audio tracks,
 - include one best English, and one best Polish audio track (TrueHD is most preferred),
 - set the default audio track to English,
@@ -414,6 +437,10 @@ This profile will:
 ```json
 {
   "video_policy": "encode",
+  "hdr_policy": {
+    "dv_policy": "keep",
+    "hdr10plus_policy": "keep"
+  },
   "nvenc": {
     "encoder_params": {
       "cq": "16",
@@ -459,7 +486,8 @@ This profile will:
 ```
 `Example 3: Encode (All Languages, Best Track)`
 This profile will:
-- transcode the video using high-quality encoder settings (losing HDR10+),
+- transcode the video using high-quality encoder settings,
+- keep Dolby Vision (forcing P7->P8 conversion if needed),
 - scan all detected audio languages (languages: "all"),
 - for each detected language, select only one best audio track (policy: "best_per_language") that is not a commentary track,
 - set English as the default audio language,
@@ -471,6 +499,10 @@ This profile will:
 ```json
 {
   "video_policy": "encode",
+  "hdr_policy": {
+    "dv_policy": "keep",
+    "hdr10plus_policy": "keep"
+  },
   "nvenc": {
     "encoder_params": {
       "cq": "16",
@@ -517,12 +549,13 @@ This profile will:
 
 `Example 4: Passthrough (Remux) Profiles`
 
-These profiles **skip video encoding**, preserving the original video quality and **preserving HDR10+ metadata**. The nvenc and amf sections are omitted as they are not used.
+These profiles **skip video encoding**, preserving the original video quality. The nvenc and amf sections are omitted as they are not used.
 
 `Example 4a: Pure Passthrough`
-(for DV5-DV8 compatible players, e.g., Nvidia Shield, or for when you don't care about DV and just want to keep HDR10+)
+(for DV5-DV7 compatible players, e.g., Nvidia Shield)
 This profile will:
-- copy (remux) the video stream 1:1, preserving original quality, HDR10+, and the original DV Profile (P5/P7/P8),
+- copy (remux) the video stream 1:1, preserving original quality, 
+- keep the original DV Profile (P5/P7/P8) and HDR10+,
 - select the best audio track for English and Polish (excluding commentaries),
 - select the best subtitle track for Polish (excluding forced/sdh),
 - set English as the default audio language, and Polish as the default subs.
@@ -531,7 +564,10 @@ This profile will:
 ```json
 {
   "video_policy": "passthrough",
-  "passthrough_convert_dv_to_p8": false,
+  "hdr_policy": {
+    "dv_policy": "keep",
+    "hdr10plus_policy": "keep"
+  },
   "audio_selection": {
     "policy": "best_per_language",
     "languages": ["eng", "pol"],
@@ -569,7 +605,10 @@ This profile will:
 ```json
 {
   "video_policy": "passthrough",
-  "passthrough_convert_dv_to_p8": true,
+  "hdr_policy": {
+    "dv_policy": "convert7_to_8",
+    "hdr10plus_policy": "keep"
+  },
   "audio_selection": {
     "policy": "best_per_language",
     "languages": ["eng", "pol"],
@@ -594,7 +633,47 @@ This profile will:
   }
 }
 ```
+`Example 4c: Hybrid Passthrough (Drop DV)`
+(For players that support HDR10+ but not Dolby Vision, or servers like Plex that struggle with DV transcoding)
+This profile will:
+- copy (remux) the video stream, preserving original quality and HDR10+,
+- remove (drop) all Dolby Vision metadata,
+- select the best audio track for English and Polish (excluding commentaries),
+- select the best subtitle track for Polish (excluding forced/sdh),
+- set English as the default audio language, and Polish as the default subs.
+- clean up temp files on success.
 
+```json
+{
+  "video_policy": "passthrough",
+  "hdr_policy": {
+    "dv_policy": "drop",
+    "hdr10plus_policy": "keep"
+  },
+  "audio_selection": {
+    "policy": "best_per_language",
+    "languages": ["eng", "pol"],
+    "preferred_codecs": ["truehd", "dts-hd ma"],
+    "exclude_titles_containing": ["commentary"],
+    "default_track_language": "eng"
+  },
+  "subtitle_selection": {
+    "policy": "best_per_language",
+    "languages": ["pol"],
+    "preferred_codecs": ["subrip", "hdmv_pgs_subtitle"],
+    "exclude_titles_containing": ["forced", "sdh"],
+    "default_track_language": "pol",
+    "default_mode": "first"
+  },
+  "cleanup_policy": {
+    "final_cleanup": "on_success"
+  },
+  "logging": {
+    "log_to_file": true,
+    "log_filename": "mkv_factory.log"
+  }
+}
+```
 ---
 ## Validating Your MKV
 
@@ -641,6 +720,11 @@ Create a central folder for your tools, for example: `C:\Tools`.
 - Download the Windows archive `...pc-windows-msvc.zip` from [GitHub Releases](https://github.com/quietvoid/dovi_tool/releases).
 - Extract the `dovi_tool.exe` file and place it in `C:\Tools\dovi_tool`.
 
+**hdr10plus_tool**
+
+- Download the latest ...pc-windows-msvc.zip release from [GitHub Releases](https://github.com/quietvoid/hdr10plus_tool/releases)
+- Extract hdr10plus_tool.exe and place it in `C:\Tools\hdr10plus_tool`
+
 ### Step 3: Configure the PATH Environment Variable
 
 1. Press the Windows key and type "environment variables". Select "Edit the system environment variables".
@@ -651,6 +735,7 @@ Create a central folder for your tools, for example: `C:\Tools`.
    C:\Tools\ffmpeg\bin
    C:\Program Files\MKVToolNix
    C:\Tools\dovi_tool
+   C:\Tools\hdr10plus_tool
    ```
 5. Click "OK" on all windows to save the changes.
 
@@ -684,6 +769,7 @@ Make sure you open a new window after editing the PATH variable.
 ffmpeg -version
 mkvmerge -V
 dovi_tool --version
+hdr10plus_tool --version
 pip show unidecode (optional)
 pip show colorama (optional)
 ```
@@ -700,11 +786,8 @@ This project relies on the outstanding open-source work behind FFmpeg, MKVToolNi
 ## Future Plans
 
 This may, or may not happen :)
-- `HDRO10+` exctraction and reinjection
-- Flexible policies on Dolby Vision/HDR10+ (drop, keep, convert)
-- `hevc_qsv` support for integrated GPU's
+- `hevc_qsv` support for integrated Intel GPU's
 - Batch processing results file (detailed summary of processed files)
-- Refactor encoding path selection strategies
 
 ## Support / Buy Me a Coffee ☕️
 

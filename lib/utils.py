@@ -2,6 +2,10 @@
 
 """
 MKV Factory - Utility Module
+Version 8.7
+
+Changes:
+- add HDR10plus tag
 """
 
 import subprocess
@@ -134,16 +138,11 @@ def sanitize_filename(filename: str) -> str:
     otherwise falls back to basic ASCII encoding (ś -> [removed]).
     """
     global UNIDECODE_WARNING_SHOWN
-
-    # 1. Separate the base name and extension
-    base_name, extension = os.path.splitext(filename)
-    safe_base_name = ""
+    safe_filename = ""
 
     if UNIDECODE_AVAILABLE:
         # --- Smart Path (unidecode installed) ---
-        # "Tèściczek [żółć]" -> "Tesciczek [zolc]"
-        safe_base_name = unidecode(base_name)
-
+        safe_filename = unidecode(filename)
     else:
         # --- Fallback Path (unidecode NOT installed) ---
         if not UNIDECODE_WARNING_SHOWN:
@@ -151,16 +150,17 @@ def sanitize_filename(filename: str) -> str:
             print_warn("Activating fallback mode: Special characters (e.g., 'ś', 'ó') will be REMOVED, not transliterated (to 's', 'o').")
             UNIDECODE_WARNING_SHOWN = True # Show warning only once
 
-        # "Tèściczek [żółć]" -> "Tsciczek [olc]"
-        # This works by encoding to ASCII and just ignoring errors (dropping chars)
-        safe_base_name = base_name.encode('ascii', errors='ignore').decode('ascii')
+        safe_filename = filename.encode('ascii', errors='ignore').decode('ascii')
 
-    # 3. (Optional but recommended) Remove any remaining non-safe chars
-    # This regex keeps letters, numbers, spaces, dots, underscores, dashes, and brackets
-    safe_base_name = re.sub(r'[^\w\s\._\-\[\]\(\)]', '', safe_base_name).strip()
+    # 3. Remove any remaining non-safe chars from the WHOLE string
+    #    (Keeps dots '.', underscores '_', etc.)
+    safe_filename = re.sub(r'[^\w\s\._\-\[\]\(\)]', '', safe_filename)
 
-    # 4. Re-assemble the filename
-    return f"{safe_base_name}{extension}"
+    # 4. Collapse multiple whitespace characters into a single space
+    safe_filename = re.sub(r'\s+', ' ', safe_filename).strip()
+
+    # 5. Return the fully sanitized string
+    return safe_filename
 
 # Progress filtering patterns to prevent flooding console and logfile
 PROGRESS_PATTERNS = (
@@ -210,7 +210,7 @@ def run_command(cmd: List[str], cwd: str = None):
     print_k(f"$ {' '.join(cmd)}", Kolory.OKBLUE)
 
     # Define tools that are fast and/or silent in pipes
-    FAST_TOOLS = ['dovi_tool']
+    FAST_TOOLS = ['dovi_tool', 'hdr10plus_tool']
 
     is_fast_tool = cmd[0] in FAST_TOOLS
 
@@ -413,6 +413,40 @@ def get_unique_filename(output_dir: str, desired_filename: str) -> str:
     # Return the filename component only, not the full path
     return os.path.basename(final_path)
 
+def resolve_final_filename(output_dir: str, desired_filename: str) -> str:
+    """
+    Sanitizes a desired filename, ensures it has .mkv extension,
+    checks for uniqueness, and logs warnings if changes were made.
+    Returns the final, safe, and unique filename.
+    """
+
+    # 1. Sanitize (using V3 sanitize_filename)
+    sane_filename = sanitize_filename(desired_filename)
+    if sane_filename != desired_filename:
+        print_warn(f"Filename was sanitized for safety:")
+        print_info(f"  Original: {desired_filename}")
+        print_info(f"  Cleaned:  {sane_filename}")
+
+    # 2. Enforce .mkv extension (Checks the *sanitized* string)
+    if not sane_filename.lower().endswith(".mkv"):
+        # Rule 1: It does NOT end with .mkv.
+        # This handles "wefwef loadasd.dupskol" and "wefwef"
+        print_info(f"Filename '{sane_filename}' does not end with .mkv. Appending .mkv extension.")
+        sane_filename = f"{sane_filename}.mkv" # -> "wefwef loadasd.dupskol.mkv"
+    else:
+        # Rule 2: It *does* end with .mkv. Do nothing.
+        pass
+
+    # 3. Check uniqueness (using existing helper)
+    unique_filename = get_unique_filename(output_dir, sane_filename)
+
+    # 4. Log if uniqueness check changed the name
+    if unique_filename != sane_filename:
+        print_warn(f"File '{sane_filename}' already exists in output directory.")
+        print_info(f"Using new unique name: {unique_filename}")
+
+    return unique_filename
+
 ### Helper function to get unique languages from a stream list
 def get_unique_languages(stream_list: List[Dict[str, Any]]) -> List[str]:
     """Extracts a sorted list of unique language codes from streams."""
@@ -506,8 +540,18 @@ def generate_plex_friendly_name(source_filename: str, config: Dict) -> str:
         elif config['encoder'] == 'amf' and 'qp' in config['encoder_params']:
             quality_tags.append(f"QP{config['encoder_params']['qp']}")
 
-    if config['has_dv']:
+    # Check if DV will be present in the final file
+    dv_is_present = config['has_dv'] and config.get('dv_policy', 'keep') != 'drop'
+    if dv_is_present:
         quality_tags.append("DV")
+
+    # Check if HDR10+ will be present in the final file
+    hdr10plus_is_present = config.get('has_hdr10plus', False) and config.get('hdr10plus_policy', 'keep') != 'drop'
+
+    # Only add "HDR10+" tag if DV isn't already present
+    # (Plex convention: [DV] implies HDR10+ compatibility for P8)
+    if hdr10plus_is_present:
+         quality_tags.append("HDR10plus")
 
     quality_str = f"[{' '.join(quality_tags)}]"
 

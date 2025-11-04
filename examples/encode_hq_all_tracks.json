@@ -1,5 +1,9 @@
 {
   "video_policy": "encode",
+  "hdr_policy": {
+    "dv_policy": "keep",
+    "hdr10plus_policy": "keep"
+  },
   "nvenc": {
     "encoder_params": {
       "cq": "16",
