@@ -32,8 +32,8 @@ Need to fine-tune your MKVs? You can extract the best parts from different MKVs 
 **Static HDR10:** This script attempts to preserve static HDR10 metadata for files without DV/HDR10+ by mapping it during the encode. However, this method's success is not guaranteed and depends on ffmpeg's ability to read the source metadata. For files that have static HDR10 **only**, using Passthrough Mode is the most reliable method to ensure it is preserved. For files with DV/HDR10+ the static tags are included in the respective streams for both Encode and Passthrough modes.
 
 **Dolby Vision Profile 5 :** Encoding DV5 is incompatible. This profile's IPT-PQ-C2 color matrix cannot be correctly processed by the tools used in this script. Attempting would result in corrupted (purple/green) video.
-    - The script detects DV P5 and **automatically forces pure Passthrough mode** (1:1 copy) to prevent video corruption during processing.
-    - The resulting output file will retain the original Profile 5 stream and will likely appear purple/green on most players due to lack of IPT-PQ-C2 support. Correct playback requires compatible hardware (e.g., Nvidia Shield).
+  - The script detects DV P5 and **automatically forces pure Passthrough mode** (1:1 copy) to prevent video corruption during processing.
+  - The resulting output file will retain the original Profile 5 stream and will likely appear purple/green on most players due to lack of IPT-PQ-C2 support. Correct playback requires compatible hardware (e.g., Nvidia Shield).
 
 ---
 ## Prerequisites
