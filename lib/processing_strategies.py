@@ -217,7 +217,22 @@ class EncodeStrategy(VideoProcessor):
             # No -map_metadata here, as it would conflict with injection tools
 
             if self.config['encoder'] == 'nvenc':
-                cmd_convert.extend(['-c:v', 'hevc_nvenc', '-preset', self.config['encoder_params']['preset'], '-cq', self.config['encoder_params']['cq'], '-pix_fmt', 'p010le'])
+                cmd_convert.extend([
+                    '-c:v', 'hevc_nvenc',
+                    '-preset', self.config['encoder_params']['preset'],
+                    '-tune', 'hq',
+                    '-rc', 'vbr',
+                    '-cq', str(self.config['encoder_params']['cq']),
+                    '-b:v', '0',
+                    '-g', '240',
+                    '-rc-lookahead', '32',
+                    '-multipass', '2',
+                    '-bf', '4',
+                    '-spatial_aq', '1',
+                    '-aq-strength', '8',
+                    '-temporal_aq', '1',
+                    '-pix_fmt', 'p010le'
+                ])
             elif self.config['encoder'] == 'amf':
                 cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
 
@@ -364,7 +379,22 @@ class EncodeStrategy(VideoProcessor):
             cmd_convert.extend(['-an', '-sn'])
 
             if self.config['encoder'] == 'nvenc':
-                cmd_convert.extend(['-c:v', 'hevc_nvenc', '-preset', self.config['encoder_params']['preset'], '-cq', self.config['encoder_params']['cq'], '-pix_fmt', 'p010le'])
+                cmd_convert.extend([
+                    '-c:v', 'hevc_nvenc',
+                    '-preset', self.config['encoder_params']['preset'],
+                    '-tune', 'hq',
+                    '-rc', 'vbr',
+                    '-cq', str(self.config['encoder_params']['cq']),
+                    '-b:v', '0',
+                    '-g', '240',
+                    '-rc-lookahead', '32',
+                    '-multipass', '2',
+                    '-bf', '4',
+                    '-spatial_aq', '1',
+                    '-aq-strength', '8',
+                    '-temporal_aq', '1',
+                    '-pix_fmt', 'p010le'
+                ])
             elif self.config['encoder'] == 'amf':
                 cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
 
