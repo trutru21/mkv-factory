@@ -3,12 +3,10 @@
 """
 MKV Factory - Processing & Execution Module
 (Extraction, Conversion, Muxing)
-Version 9.0
+Version 10
 
 Changes:
-- refactored to use a Strategy pattern for video processing
-- introduce keep, drop, convert HDR policies
-- remove HDR10 processing logic
+- add support for a/v sync for mkv with delayed audio
 
 """
 
@@ -331,6 +329,18 @@ def run_full_conversion(
         else: # input_type == 'raw_hevc'
             # This handles Encode, Hybrid Convert, and Hybrid Drop
             print_info(f"Adding raw HEVC video stream (Encode/Hybrid).")
+
+            v_stream = config['video_stream']
+            v_start_time = v_stream.get('start_time', '0.000000')
+            try:
+                v_delay_ms = int(float(v_start_time) * 1000)
+            except:
+                v_delay_ms = 0
+
+            if v_delay_ms != 0:
+                print_info(f"Applying video sync delay: {v_delay_ms}ms")
+                cmd_mux.extend(['--sync', f'0:{v_delay_ms}'])
+
             cmd_mux.extend(['--language', f'{map_str_for_mux}:und'])
 
             # Keep FPS in sync ---
@@ -347,27 +357,69 @@ def run_full_conversion(
         # Add audio tracks
         current_audio_index = 0
         for audio in temp_audio_files:
-            lang = audio['stream'].get('tags', {}).get('language', 'und')
-            title = audio['stream'].get('tags', {}).get('title', f'{lang.upper()} {audio["stream"]["codec_name"]}')
+            stream = audio['stream']
+            lang = stream.get('tags', {}).get('language', 'und')
+            title = stream.get('tags', {}).get('title', f'{lang.upper()} {stream["codec_name"]}')
             is_default = 'yes' if current_audio_index == config['default_audio_index'] else 'no'
-            cmd_mux.extend(['--language', f'0:{lang}', '--track-name', f'0:{title}', '--default-track', f'0:{is_default}', audio['path']])
+
+            raw_start_time = stream.get('start_time', '0.000000')
+            try:
+                delay_ms = int(float(raw_start_time) * 1000)
+            except (ValueError, TypeError):
+                delay_ms = 0
+
+            if delay_ms != 0:
+                print_info(f"Applying audio sync delay: {delay_ms}ms for track {current_audio_index}")
+                cmd_mux.extend(['--sync', f'0:{delay_ms}'])
+
+            cmd_mux.extend([
+                '--language', f'0:{lang}',
+                '--track-name', f'0:{title}',
+                '--default-track', f'0:{is_default}',
+                audio['path']
+            ])
             current_audio_index += 1
+
+        # Ścieżki zewnętrzne (zostawiamy bez automatycznego sync, chyba że chcesz inaczej)
         for audio in config['external_audio_files']:
             is_default = 'yes' if current_audio_index == config['default_audio_index'] else 'no'
-            cmd_mux.extend(['--language', f'0:{audio["lang"]}', '--track-name', f'0:{audio["title"]}', '--default-track', f'0:{is_default}', audio['path']])
+            cmd_mux.extend([
+                '--language', f'0:{audio["lang"]}',
+                '--track-name', f'0:{audio["title"]}',
+                '--default-track', f'0:{is_default}',
+                audio['path']
+            ])
             current_audio_index += 1
 
         # Add subtitle tracks
         current_subtitle_index = 0
         for sub in temp_subtitle_files:
-            lang = sub['stream'].get('tags', {}).get('language', 'und')
-            title = sub['stream'].get('tags', {}).get('title', f'{lang.upper()} {sub["stream"]["codec_name"]}')
+            # Słownik strumienia wyciągamy raz na początku pętli
+            s_stream = sub['stream']
+
+            lang = s_stream.get('tags', {}).get('language', 'und')
+            title = s_stream.get('tags', {}).get('title', f'{lang.upper()} {s_stream["codec_name"]}')
             is_default = 'yes' if current_subtitle_index == config['default_subtitle_index'] else 'no'
-            cmd_mux.extend(['--language', f'0:{lang}', '--track-name', f'0:{title}', '--default-track', f'0:{is_default}', sub['path']])
-            current_subtitle_index += 1
-        for sub in config['external_subtitle_files']:
-            is_default = 'yes' if current_subtitle_index == config['default_subtitle_index'] else 'no'
-            cmd_mux.extend(['--language', f'0:{sub["lang"]}', '--track-name', f'0:{sub["title"]}', '--default-track', f'0:{is_default}', sub['path']])
+
+            # --- POPRAWKA SYNC: Obsługa opóźnienia napisów ---
+            s_start_time = s_stream.get('start_time', '0.000000')
+            try:
+                s_delay_ms = int(float(s_start_time) * 1000)
+            except (ValueError, TypeError):
+                s_delay_ms = 0
+
+            if s_delay_ms != 0:
+                print_info(f"Applying subtitle sync delay: {s_delay_ms}ms for track {current_subtitle_index}")
+                # mkvmerge: --sync ID:ms (ID=0 bo plik .srt/.sup ma jedną ścieżkę)
+                cmd_mux.extend(['--sync', f'0:{s_delay_ms}'])
+            # -------------------------------------------------
+
+            cmd_mux.extend([
+                '--language', f'0:{lang}',
+                '--track-name', f'0:{title}',
+                '--default-track', f'0:{is_default}',
+                sub['path']
+            ])
             current_subtitle_index += 1
 
         # --- Add custom global tags from XML (if created) ---

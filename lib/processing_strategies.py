@@ -2,11 +2,11 @@
 
 """
 MKV Factory - Video Processing Strategies Module
-Version 9.0
+Version 10
 
 Changes:
-- introduce keep, drop, convert HDR policies
-- remove HDR10 logic
+- add dynamic VUI/Color Space extraction
+- optimize GOP size and NVENC B-frames logic
 """
 
 import os
@@ -175,6 +175,22 @@ class EncodeStrategy(VideoProcessor):
         video_codec_name = video_stream_config.get('codec_name', 'unknown')
         map_video = video_stream_config.get('index', 0)
 
+        # --- Dynamic VUI extraction ---
+        dynamic_vui_params = []
+        primaries = video_stream_config.get('color_primaries')
+        transfer = video_stream_config.get('color_transfer')
+        cspace = video_stream_config.get('color_space')
+
+        if primaries and primaries != 'unknown':
+            dynamic_vui_params.extend(['-color_primaries', primaries])
+        if transfer and transfer != 'unknown':
+            dynamic_vui_params.extend(['-color_trc', transfer])
+        if cspace and cspace != 'unknown':
+            dynamic_vui_params.extend(['-colorspace', cspace])
+
+        if dynamic_vui_params:
+            print_info(f"Dynamically mapped Color properties: {dynamic_vui_params}")
+
         # Read policies
         dv_policy = self.config.get('dv_policy', 'keep')
         hdr10plus_policy = self.config.get('hdr10plus_policy', 'keep')
@@ -209,7 +225,7 @@ class EncodeStrategy(VideoProcessor):
             if not original_fps or original_fps == "0/0":
                 original_fps = video_stream_config.get('avg_frame_rate')
             if original_fps and original_fps != "0/0":
-                cmd_convert.extend(['-framerate', original_fps])
+                cmd_convert.extend(['-r', original_fps])
             else:
                 print_warn("Could not determine original FPS. FFmpeg will guess!")
 
@@ -224,17 +240,22 @@ class EncodeStrategy(VideoProcessor):
                     '-rc', 'vbr',
                     '-cq', str(self.config['encoder_params']['cq']),
                     '-b:v', '0',
-                    '-g', '240',
+                    '-g', '96',
+                    '-strict_gop', '1',
+                    '-no-scenecut', '1',
                     '-rc-lookahead', '32',
                     '-multipass', '2',
                     '-bf', '4',
+                    '-b_ref_mode', 'middle',
                     '-spatial_aq', '1',
                     '-aq-strength', '8',
                     '-temporal_aq', '1',
                     '-pix_fmt', 'p010le'
                 ])
+                cmd_convert.extend(dynamic_vui_params)
             elif self.config['encoder'] == 'amf':
-                cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
+                cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-g', '96', '-pix_fmt', 'p010le'])
+                cmd_convert.extend(dynamic_vui_params)
 
             cmd_convert.append(temp_video_converted_hevc)
             run_command(cmd_convert)
@@ -248,7 +269,7 @@ class EncodeStrategy(VideoProcessor):
             dv_profile_str = str(self.config.get('dv_profile'))
 
             if self.config['has_dv'] and dv_policy != 'drop':
-                if dv_profile_str == '7' or dv_profile_str == '8':
+                if dv_profile_str.startswith('7') or dv_profile_str.startswith('8'):
                     print_info(f"DV Profile {dv_profile_str} detected. Re-injecting RPU.")
 
                     temp_rpu_original = os.path.join(self.output_dir, f"{self.file_basename}_temp_RPU_original.bin")
@@ -359,9 +380,9 @@ class EncodeStrategy(VideoProcessor):
 
             path_name = "Simple Encode Path"
 
-            # Encode to raw .hevc
-            temp_video_converted_hevc = os.path.join(self.output_dir, f"{self.file_basename}_temp_video_converted.hevc")
-            self.temp_files.append(temp_video_converted_hevc)
+            # Save to MKV, to keep the original PTS
+            temp_video_converted_mkv = os.path.join(self.output_dir, f"{self.file_basename}_temp_video_converted.mkv")
+            self.temp_files.append(temp_video_converted_mkv)
 
             print_header(f"Step 4: ({path_name}) Encoding from source MKV")
             cmd_convert = ['ffmpeg']
@@ -370,8 +391,6 @@ class EncodeStrategy(VideoProcessor):
             cmd_convert.extend(['-i', self.source_file])
             cmd_convert.extend(['-map', f"0:{map_video}"])
 
-            # Logic to map static metadata (this is why we read from the MKV)
-            # This 'if' is redundant since 'has_dynamic_hdr' is false, but keep for clarity
             if not has_dynamic_hdr:
                 print_info("File has no DV or HDR10+. Attempting to map static HDR metadata...")
                 cmd_convert.extend(['-map_metadata:s:v', f'0:s:{map_video}'])
@@ -386,24 +405,29 @@ class EncodeStrategy(VideoProcessor):
                     '-rc', 'vbr',
                     '-cq', str(self.config['encoder_params']['cq']),
                     '-b:v', '0',
-                    '-g', '240',
+                    '-g', '96',
+                    '-strict_gop', '1',
+                    '-no-scenecut', '1',
                     '-rc-lookahead', '32',
                     '-multipass', '2',
                     '-bf', '4',
+                    '-b_ref_mode', 'middle',
                     '-spatial_aq', '1',
                     '-aq-strength', '8',
                     '-temporal_aq', '1',
                     '-pix_fmt', 'p010le'
                 ])
+                cmd_convert.extend(dynamic_vui_params)
             elif self.config['encoder'] == 'amf':
-                cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-pix_fmt', 'p010le'])
+                cmd_convert.extend(['-c:v', 'hevc_amf', '-rc', 'cqp', '-qp_p', self.config['encoder_params']['qp'], '-qp_i', self.config['encoder_params']['qp'], '-qp_b', self.config['encoder_params']['qp'], '-quality', self.config['encoder_params']['quality'], '-g', '96', '-pix_fmt', 'p010le'])
+                cmd_convert.extend(dynamic_vui_params)
 
-            cmd_convert.append(temp_video_converted_hevc)
+            cmd_convert.append(temp_video_converted_mkv)
             run_command(cmd_convert)
 
             return {
-                'video_input': temp_video_converted_hevc,
-                'map_str': "0", # Output is raw HEVC, so map is '0'
+                'video_input': temp_video_converted_mkv,
+                'map_str': "0",
                 'final_mux_step': "5",
-                'input_type': 'raw_hevc' # Output is raw_hevc
+                'input_type': 'mkv_container'
             }
