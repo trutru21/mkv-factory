@@ -115,9 +115,10 @@ def main():
     log_config = {} # Initialize empty log config
 
     if args.profile:
-        print_info(f"Loading configuration profile from: {args.profile}")
+        absolute_profile_path = os.path.abspath(args.profile)
+        print_info(f"Loading configuration profile from: {absolute_profile_path}")
         try:
-            with open(args.profile, 'r', encoding='utf-8') as f:
+            with open(absolute_profile_path, 'r', encoding='utf-8') as f:
                 loaded_profile = json.load(f)
 
             # Read logging configuration, but don't open the file yet
