@@ -1,6 +1,6 @@
 # MKV Factory
 
-#### Version 9.0
+#### Version 10
 
 
 A smart, profile-driven Python tool for automating GPU-enabled MKV conversion and remuxing built to handle HDR metadata, letting you define granular policies: keep, drop, or convert Dolby Vision / HDR10+ metadata, ensuring compatibility with your media server (Plex, Jellyfin, etc.) and players.
